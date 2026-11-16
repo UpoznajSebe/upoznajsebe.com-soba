@@ -122,6 +122,133 @@ nav.meni{position:fixed;left:0;right:0;bottom:0;background:var(--iv);border-top:
 nav.meni .u{max-width:520px;margin:0 auto;height:80px;display:flex;justify-content:space-around;align-items:center}
 nav.meni a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-width:80px;min-height:48px;text-decoration:none;color:var(--mu);font-size:9.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase}
 nav.meni a[aria-current="page"]{color:var(--pl)}
+
+/* ---------- raspored: telefon ---------- */
+.naslovna{height:var(--v,190px)}
+.pozdrav{padding-top:40px;display:flex;flex-direction:column;gap:14px}
+.nastavi{margin:36px 24px 0}
+.prostorije{padding-top:40px;display:flex;flex-direction:column;gap:12px}
+.predlog{margin:32px 24px 0;padding-top:22px;border-top:1px solid var(--bd);display:flex;align-items:center;gap:14px;text-decoration:none;color:var(--tx);min-height:44px}
+.citat{padding-top:36px;text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center}
+.blok{padding-top:36px}
+.modul-glava{padding-top:22px;display:flex;flex-direction:column;gap:30px}
+.modul .dve-kolone{padding-top:30px}
+.kolona{display:flex;flex-direction:column;gap:30px}
+.modul .strana{padding-top:30px}
+.dnevnik .stranica{margin:30px 24px 0}
+.bib-slika{height:230px;position:relative;overflow:hidden}
+.bib-slika img{width:100%;height:100%;object-fit:cover}
+.biblioteka .pozdrav{padding-top:36px}
+.ulaz-forma{padding-top:36px;display:flex;flex-direction:column;gap:22px}
+nav.meni a.meni-logo{display:none}
+
+/* ---------- raspored: računar ---------- */
+@media (min-width:960px){
+  body{background:var(--iv)}
+  nav.meni{top:0;bottom:0;right:auto;width:248px;border-top:0;border-right:1px solid var(--bd);padding:40px 0 0}
+  nav.meni .u{height:auto;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:4px;padding:0 20px;max-width:none}
+  nav.meni a.meni-logo{display:block;padding:0 12px 40px;font-size:16px;letter-spacing:.24em;text-transform:uppercase;color:var(--pl);font-weight:400}
+  nav.meni a:not(.meni-logo){flex-direction:row;justify-content:flex-start;gap:14px;padding:12px;font-size:11px;min-width:0}
+  nav.meni a[aria-current="page"]{background:var(--wg)}
+  .ekran{max-width:none;margin:0 0 0 248px;padding:0 56px 80px;min-height:100vh}
+  .ekran > *{max-width:1120px;margin-left:auto;margin-right:auto}
+  .okvir{padding-left:0;padding-right:0}
+  .zaglavlje{padding:32px 0 0}
+  .zaglavlje .logo{visibility:hidden}
+  .demo-traka{margin:0 -56px;max-width:none}
+  h1,.h1{font-size:60px}
+  h2{font-size:36px}
+  .pozdrav{padding-top:28px}
+
+  .soba-mreza{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:48px;align-items:start;margin-top:44px}
+  .nastavi{margin:0}
+  .naslovna.velika{height:320px}
+  .prostorije{padding-top:0}
+  .predlog{margin:32px 0 0}
+
+  .dve-kolone{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:56px;align-items:start}
+  .strana{position:sticky;top:32px}
+  .program .program-vrh{max-width:none;margin:0 -56px}
+  .program .naslovna.zaglavna{height:380px}
+  .program .dve-kolone{margin-top:44px}
+  .program .citat{padding-top:0;text-align:left;align-items:flex-start}
+  .program .strana .blok{padding-top:0}
+  .mreza3{grid-template-columns:1fr}
+  .plocica{min-height:0;display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:18px 20px}
+  .plocica small{margin-top:0}
+
+  .modul-glava{padding-top:32px;gap:24px}
+  .modul .dve-kolone{padding-top:40px;padding-left:0;padding-right:0}
+  .modul .strana{padding-top:0}
+  .pauza{max-width:560px}
+
+  .dnevnik .dve-kolone{margin-top:40px}
+  .dnevnik .stranica{margin:0;padding:40px 44px 24px}
+  .stranica textarea{min-height:544px;font-size:21px}
+  .dnevnik .strana .blok{padding-top:0}
+
+  .bib-slika{height:320px;margin:0 -56px;max-width:none}
+  .biblioteka .dve-kolone{margin-top:8px}
+  .biblioteka .otvoreno{max-width:820px;margin-left:0}
+
+  .ekran.ulaz{display:grid;grid-template-columns:1.1fr 1fr;margin:0;padding:0;max-width:none;min-height:100vh}
+  .ekran.ulaz > *{max-width:none;margin:0}
+  .ekran.ulaz .demo-traka{grid-column:1/-1;margin:0}
+  .ulaz .ulaz-slika{height:auto;min-height:100vh;max-height:none}
+  .ulaz .ulaz-slika h1{font-size:72px} .ulaz .ulaz-slika h1 em{font-size:84px}
+  .ulaz .ulaz-forma{align-self:center;justify-self:center;width:100%;max-width:420px;padding:48px 24px}
+}
+
+/* ---------- poruka meseca i promocija ---------- */
+.poruka-meseca{margin-top:8px;background:var(--wg);border-left:1px solid var(--go);padding:16px 18px;font-size:14.5px;line-height:1.7;color:var(--tx);white-space:pre-line}
+.promocija{margin:32px 24px 0;background:var(--wh);display:flex;flex-direction:column}
+.promocija img{width:100%;height:170px;object-fit:cover}
+.promocija-tekst{padding:22px 22px 24px;display:flex;flex-direction:column;gap:12px}
+.promocija h3{font-family:var(--serif);font-weight:400;font-size:26px;line-height:1.15;color:var(--ink)}
+
+/* ---------- uređivanje ---------- */
+.ured-tabovi{display:flex;gap:8px;overflow-x:auto;padding-top:28px;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+.ured-tabovi a{flex:none;font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--mu);text-decoration:none;border:1px solid var(--bd);padding:12px 16px;min-height:44px;display:flex;align-items:center;background:var(--wh)}
+.ured-tabovi a[aria-current="page"]{background:var(--pl);border-color:var(--pl);color:#fff}
+#ured-sadrzaj{padding-top:28px}
+.ured-blok{background:var(--wh);padding:24px 22px;margin-bottom:16px;display:flex;flex-direction:column;gap:14px}
+.ured-blok.tiho-zlato{border-left:1px solid var(--go)}
+.forma-ured{display:flex;flex-direction:column;gap:18px}
+.polje-ured{display:flex;flex-direction:column;gap:6px;border:0}
+.polje-ured label,.polje-ured legend{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--mu);margin-bottom:2px}
+.polje-ured input,.polje-ured textarea,.polje-ured select{width:100%;border:1px solid var(--bd);background:var(--iv);padding:12px 14px;font-family:var(--sans);font-weight:300;font-size:15px;color:var(--ink);border-radius:0;min-height:46px}
+.polje-ured textarea{line-height:1.7;resize:vertical}
+.polje-ured input:focus,.polje-ured textarea:focus,.polje-ured select:focus{outline:none;border-color:var(--go)}
+.polje-ured .cek{display:flex;align-items:center;gap:10px;font-size:15px;letter-spacing:0;text-transform:none;color:var(--ink);min-height:40px}
+.polje-ured .cek input{width:18px;height:18px;min-height:0;accent-color:var(--pl)}
+.dva-polja{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.ured-red{display:flex;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid var(--bd);font-size:14px;color:var(--ink);line-height:1.5}
+.ured-red.kolona-red{flex-direction:column;gap:8px}
+.cipovi{display:flex;flex-wrap:wrap;gap:8px}
+.cip{border:1px solid var(--bd);background:var(--iv);color:var(--mu);font-size:12.5px;padding:10px 14px;min-height:40px;cursor:pointer}
+.cip.uklj{border-color:var(--pl);color:var(--pl);background:var(--wh)}
+.ured-brojevi{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:16px}
+.broj-kartica{background:var(--wh);padding:18px;display:flex;flex-direction:column;gap:6px}
+.broj-kartica strong{font-family:var(--serif);font-weight:300;font-size:38px;line-height:1;color:var(--pl)}
+.modul-ured{border-bottom:1px solid var(--bd)}
+.modul-ured summary{cursor:pointer;padding:16px 0;font-family:var(--serif);font-size:20px;color:var(--ink);list-style:none;min-height:44px}
+.modul-ured summary::-webkit-details-marker{display:none}
+.modul-ured summary .broj{font-style:italic;color:var(--mu);display:inline-block;width:40px}
+.modul-ured[open] summary{color:var(--pl)}
+.modul-ured .forma-ured{padding:4px 0 20px}
+.ured-sacuvaj{position:sticky;bottom:96px;padding:12px 0}
+.javi{position:fixed;left:50%;transform:translateX(-50%);bottom:96px;background:var(--ink);color:#fff;font-size:13px;padding:0;max-width:90vw;text-align:center;z-index:5}
+.javi:not(:empty){padding:12px 18px}
+.javi.greska{background:#8a2f2f}
+@media (min-width:960px){
+  .promocija{margin:32px 0 0}
+  .ured-tabovi{padding-top:32px}
+  .ured-brojevi{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .ured .okvir{max-width:860px;margin-left:0}
+  .ured-sacuvaj{bottom:0}
+  .javi{bottom:110px;left:calc(50% + 124px)}
+}
+
 .vidljivo-citacu{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 </style>
 </head>
