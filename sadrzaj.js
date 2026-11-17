@@ -72,6 +72,22 @@ window.SOBA_SADRZAJ = {
         { id: "08", rim: "VIII", naziv: "Novi odnos prema sebi", podnaslov: "", vimeo: "", trajanje: "", pismo: "", zadatak: "", trebalo: "", recenica: "" },
       ],
     },
+    {
+      // Članstvo: svakog meseca jedan video i tekstovi. Povratak sebi uključuje ovu prostoriju.
+      id: "mesecna-soba",
+      tip: "clanstvo",
+      naziv: "Mesečna soba",
+      kratko: "Svakog meseca novo",
+      slika: "slike/mesecna.jpg",
+      naslovnaTekst: false,
+      citat: "",
+      uvod: "",
+      prodaja: "",
+      uzProgram: [],
+      moduli: [
+        { id: "01", rim: "I", mesec: "Decembar 2026", naziv: "Prvi mesec", podnaslov: "", vimeo: "", trajanje: "", pismo: "", zadatak: "", trebalo: "", recenica: "" },
+      ],
+    },
   ],
   biblioteka: [
     { id: "relaksacija-novac", program: "relaksacija-novac", naziv: "Relaksacija za rad sa novcem", opis: "Vođena fantazija", vimeo: "", slika: "slike/relaksacija.jpg" },
