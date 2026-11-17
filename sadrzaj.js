@@ -1,4 +1,4 @@
-// Sadržaj Sobe: programi, moduli i Biblioteka.
+// Sadržaj Prostora: programi, moduli i Biblioteka.
 // Nov modul se dodaje tako što se doda jedan red u listu "moduli".
 // vimeo: broj videa sa Vimeo-a (iz linka vimeo.com/123456789). Prazno = video još nije postavljen.
 // sveska: link ka PDF-u (Dnevnik korena ili radna sveska). Prazno = nema.
@@ -76,7 +76,7 @@ window.SOBA_SADRZAJ = {
       // Članstvo: svakog meseca jedan video i tekstovi. Povratak sebi uključuje ovu prostoriju.
       id: "mesecna-soba",
       tip: "clanstvo",
-      naziv: "Mesečna soba",
+      naziv: "Kutak",
       kratko: "Svakog meseca novo",
       slika: "slike/mesecna.jpg",
       naslovnaTekst: false,

@@ -1,4 +1,4 @@
-/* Soba · Upoznaj Sebe
+/* Prostor Upoznaj Sebe
    Jedna stranica, bez build koraka. Radi na GitHub Pages.
    Bez Supabase podešavanja radi u DEMO režimu (sve se čuva u ovom pregledaču). */
 (function () {
@@ -6,12 +6,12 @@
   var C = window.SOBA_CONFIG || {};
   var S = window.SOBA_SADRZAJ || { programi: [], biblioteka: [] };
   var OSNOVNI = JSON.parse(JSON.stringify(S));
-  // Programi iz sadrzaj.js koje sačuvani sadržaj još nema (npr. nova Mesečna soba) se dodaju na kraj.
+  // Programi iz sadrzaj.js koje sačuvani sadržaj još nema (npr. Kutak) se dodaju na kraj.
   function dopuni(s) {
     OSNOVNI.programi.forEach(function (p) { if (!s.programi.some(function (x) { return x.id === p.id; })) s.programi.push(JSON.parse(JSON.stringify(p))); });
     return s;
   }
-  // Ko ima Povratak sebi, ima i Mesečnu sobu.
+  // Ko ima Povratak sebi, ima i Kutak.
   function prosiri(pristup) {
     pristup = (pristup || []).slice();
     if (pristup.indexOf("povratak") >= 0 && pristup.indexOf("mesecna-soba") < 0) pristup.push("mesecna-soba");
@@ -199,7 +199,7 @@
 
   /* ---------- delovi ekrana ---------- */
   function meni(aktivno) {
-    var stavke = [["#/", "soba", "Soba"], ["#/dnevnik", "dnevnik", "Moj dnevnik"], ["#/biblioteka", "bib", "Biblioteka"]];
+    var stavke = [["#/", "soba", "Prostor"], ["#/dnevnik", "dnevnik", "Moj dnevnik"], ["#/biblioteka", "bib", "Biblioteka"]];
     if (JE_UREDNIK) stavke.push(["#/uredjivanje", "ured", "Uređivanje"]);
     return '<nav class="meni" aria-label="Glavni meni"><div class="u"><a class="logo meni-logo" href="#/">Upoznaj Sebe</a>' + stavke.map(function (s) {
       return '<a href="' + s[0] + '"' + (s[1] === aktivno ? ' aria-current="page"' : "") + ">" + ikona(IKONA[s[1]]) + s[2] + "</a>";
@@ -225,7 +225,7 @@
     app.innerHTML = '<main class="ekran ulaz" style="padding-bottom:40px">' + demoTraka() +
       '<div class="ulaz-slika"><img src="' + esc((PODESAVANJA.naslovna && PODESAVANJA.naslovna.slikaUlaz) || "slike/cvetovi.jpg") + '" alt=""><div class="sloj"></div>' +
       '<div class="vrh"><span class="logo" style="color:#fff">Upoznaj Sebe</span></div>' +
-      '<div class="dno"><span class="ozn">Tvoja soba</span><h1>Upoznaj<em>sebe.</em></h1></div></div>' +
+      '<div class="dno"><span class="ozn">Tvoj prostor</span><h1>Upoznaj<em>sebe.</em></h1></div></div>' +
       '<form id="forma" class="okvir ulaz-forma" novalidate>' +
       (poruka ? '<div class="poruka" role="status">' + poruka + "</div>" :
         '<p class="tekst" style="text-align:center">Upiši mejl sa kojim si kupio program. Poslaćemo ti link za ulaz, lozinka ti ne treba.</p>') +
@@ -332,7 +332,7 @@
     if (pristup.indexOf(p.id) < 0) return ekranZatvoreno(p);
     var tren = poslednji(napredak, pristup);
     var h = '<main class="ekran program">' + demoTraka() + '<div class="program-vrh" style="position:relative">' + naslovna(p, 260, 42, "zaglavna") +
-      '<a href="#/" class="malo-dugme" style="position:absolute;top:16px;left:16px;background:rgba(250,248,244,.92);color:var(--pl);padding:0 16px">← Soba</a></div>';
+      '<a href="#/" class="malo-dugme" style="position:absolute;top:16px;left:16px;background:rgba(250,248,244,.92);color:var(--pl);padding:0 16px">← Prostor</a></div>';
     var citat = "";
     if (p.citat) citat = '<div class="okvir citat">' +
       '<p style="font-family:var(--serif);font-style:italic;font-weight:300;font-size:25px;line-height:1.4;color:var(--ink)">„' + esc(p.citat) + '”</p><span class="tiho" style="letter-spacing:.24em;text-transform:uppercase;font-size:10.5px">Milica Bilbija</span></div>';
@@ -360,7 +360,7 @@
   function ekranZatvoreno(p) {
     app.innerHTML = '<main class="ekran">' + zaglavlje() + '<div class="okvir" style="padding-top:44px;display:flex;flex-direction:column;gap:18px">' +
       '<div class="nadnaslov">' + esc(p ? p.naziv : "Program") + "</div><h1>Ova prostorija <em>još nije tvoja.</em></h1>" +
-      '<p class="tekst">' + (clanstvo(p) ? "Mesečna soba se otvara uz članarinu. Svakog meseca ovde stiže novi video i tekstovi koje čitaš svojim tempom." : "Program nije otvoren na mejlu sa kojim si ušao.") +
+      '<p class="tekst">' + (clanstvo(p) ? "Kutak se otvara uz članarinu. Svakog meseca ovde stiže novi video i tekstovi koje čitaš svojim tempom." : "Program nije otvoren na mejlu sa kojim si ušao.") +
       ' Ako si ga kupio sa drugim mejlom, odjavi se i uđi sa njim. Ako ne uspe, piši na <a href="mailto:' + esc(C.MEJL_PODRSKE) + '">' + esc(C.MEJL_PODRSKE) + '</a>.</p>' +
       '<a class="dugme obrub" href="' + esc((p && p.prodaja) || "https://upoznajsebe.com/") + '" target="_blank" rel="noopener">Saznaj više</a></div></main>' + meni("soba");
   }
@@ -479,7 +479,7 @@
 
   /* ---------- Uređivanje (samo urednici) ---------- */
   var RIM = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV"];
-  var SLIKE = [["slike/cvetovi.jpg", "Cvetovi (Koren)"], ["slike/more.jpg", "More (Povratak sebi)"], ["slike/relaksacija.jpg", "Relaksacija"], ["slike/mesecna.jpg", "Svetlo i senka (Mesečna soba)"], ["slike/milica.jpg", "Milica"]];
+  var SLIKE = [["slike/cvetovi.jpg", "Cvetovi (Koren)"], ["slike/more.jpg", "More (Povratak sebi)"], ["slike/relaksacija.jpg", "Relaksacija"], ["slike/mesecna.jpg", "Svetlo i senka (Kutak)"], ["slike/milica.jpg", "Milica"]];
   function nazivPrograma(id) { var p = PROGRAMI_SVI().filter(function (x) { return x.id === id; })[0]; return p ? p.naziv : id; }
   function polje(id, oznaka, vrednost, vrsta, pomoc) {
     var v = esc(vrednost == null ? "" : vrednost);
@@ -565,7 +565,7 @@
     mesto.innerHTML = '<div class="cipovi" style="margin-bottom:24px">' + kopija.programi.map(function (x) {
         return '<button class="cip' + (x.id === p.id ? " uklj" : "") + '" data-izaberi="' + esc(x.id) + '">' + esc(x.naziv) + "</button>"; }).join("") + "</div>" +
       '<section class="ured-blok forma-ured"><div class="nadnaslov">Program</div>' +
-      polje("p-naziv", "Naziv programa", p.naziv) + polje("p-kratko", "Kratak opis", p.kratko, "text", "Piše ispod naziva u Sobi, npr. 9 modula") +
+      polje("p-naziv", "Naziv programa", p.naziv) + polje("p-kratko", "Kratak opis", p.kratko, "text", "Piše ispod naziva u Prostoru, npr. 9 modula") +
       polje("p-citat", "Citat u prostoriji", p.citat, "dugo") + polje("p-uvod", "Pismo pre početka (prva stvar koju polaznik vidi u programu)", p.uvod, "dugo") +
       polje("p-uvodpdf", "Link do pisma kao PDF (nije obavezno)", p.uvodPdf, "url") + polje("p-prodaja", "Link prodajne stranice (za one koji nemaju program)", p.prodaja, "url") + polje("p-sveska", "Link do PDF-a (Dnevnik korena ili radna sveska)", sveska ? sveska.link : "", "url") + "</section>" +
       '<section class="ured-blok"><div class="nadnaslov">' + (clanstvo(p) ? "Meseci" : "Moduli") + '</div>' + p.moduli.map(function (m, i) {
@@ -604,7 +604,7 @@
 
   function uredNaslovna(mesto) {
     var n = PODESAVANJA.naslovna || {};
-    mesto.innerHTML = '<section class="ured-blok forma-ured"><div class="nadnaslov">Početna Sobe</div>' +
+    mesto.innerHTML = '<section class="ured-blok forma-ured"><div class="nadnaslov">Početna Prostora</div>' +
       polje("n-recenica", "Rečenica ispod pozdrava", n.recenica || "Ne moraš danas sve. Dovoljan je jedan deo.") +
       polje("n-poruka", "Poruka meseca", n.poruka || "", "dugo", "Vide je svi polaznici ispod pozdrava. Ostavi prazno kad ne treba.") +
       izbor("n-slika", "Fotografija na ulazu", SLIKE, n.slikaUlaz || "slike/cvetovi.jpg") +
