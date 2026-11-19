@@ -51,6 +51,7 @@ window.SOBA_SADRZAJ = {
     },
     {
       id: "povratak",
+      mesecno: true, // jedan modul za svaku uplatu
       naziv: "Povratak sebi",
       kratko: "8 modula, jedan mesečno",
       slika: "slike/more.jpg",
