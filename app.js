@@ -17,22 +17,31 @@
   }
   // Ko ima Povratak sebi, ima i Kutak.
   var PRISTUP_INFO = {};
-  function prosiri(pristup) {
-    pristup = (pristup || []).slice();
-    var pov = PRISTUP_INFO.povratak || {};
-    // Kutak ide uz Povratak sebi dok traje pretplata; posle 8 uplata (godina pristupa) više ne.
-    var traje = !pov.istice || (pov.uplate || 0) < 8;
-    if (pristup.indexOf("povratak") >= 0 && traje && pristup.indexOf("mesecna-soba") < 0) pristup.push("mesecna-soba");
-    return pristup;
-  }
-  // Program sa "mesecno: true" otvara po jedan modul za svaku uplatu. Bez broja uplata (ručno dodat) sve je otvoreno.
+  // Kutak uz Koren i Povratak sebi stiže kao poseban red u bazi (6 meseci), pa ovde nema dodatnih pravila.
+  function prosiri(pristup) { return (pristup || []).slice(); }
+  // Uplata u celosti: sve je otvoreno. Na rate: deo modula za svaku ratu (Koren 4 rate: 3, 5, 7, 9 modula).
+  // Ručno dodat polaznik bez broja rata: broj uplata = broj otvorenih modula.
   function otvoreno(p) {
-    if (!p.mesecno) return p.moduli.length;
-    var u = (PRISTUP_INFO[p.id] || {}).uplate;
-    return u == null ? p.moduli.length : Math.max(1, Math.min(u, p.moduli.length));
+    var info = PRISTUP_INFO[p.id] || {}, n = p.moduli.length;
+    if (info.uplate == null || clanstvo(p)) return n;
+    var r = info.rate || n;
+    return Math.max(1, Math.min(n, Math.ceil(n * info.uplate / r)));
   }
   function zakljucan(p, m) { return p.moduli.indexOf(m) >= otvoreno(p); }
   function clanstvo(p) { return p && p.tip === "clanstvo"; }
+  // Video polje prima Vimeo broj ili YouTube link/ID (YouTube "Unlisted" za početak).
+  function youtubeId(v) {
+    v = String(v || "").trim();
+    var m = v.match(/(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?v=|embed\/|shorts\/|live\/))([A-Za-z0-9_-]{11})/);
+    if (m) return m[1];
+    return /^[A-Za-z0-9_-]{11}$/.test(v) && /[A-Za-z_-]/.test(v) ? v : null;
+  }
+  function videoOkvir(v, naslov, id) {
+    var yt = youtubeId(v);
+    var src = yt ? "https://www.youtube-nocookie.com/embed/" + yt + "?rel=0&modestbranding=1&playsinline=1"
+      : "https://player.vimeo.com/video/" + encodeURIComponent(String(v).replace(/\D/g, "")) + "?dnt=1&title=0&byline=0&portrait=0";
+    return '<iframe' + (id && !yt ? ' id="' + id + '"' : "") + ' src="' + src + '" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen title="' + esc(naslov) + '"></iframe>';
+  }
   function oznaka(p, m) { return clanstvo(p) ? (m.mesec || "Ovog meseca") : "Modul " + m.rim; }
   function redosled(p) { return clanstvo(p) ? p.moduli.slice().reverse() : p.moduli; }
   var DEMO = !(C.SUPABASE_URL && C.SUPABASE_KLJUC);
@@ -90,13 +99,17 @@
       return sb.auth.signOut();
     },
     pristup: function () {
-      if (DEMO) { PRISTUP_INFO = { povratak: { uplate: 3, istice: null } }; return Promise.resolve(["koren", "povratak", "relaksacija-novac"]); }
-      return sb.from("pristup").select("program,istice,uplate").eq("aktivan", true).eq("email", String(korisnik.email || "").toLowerCase())
+      if (DEMO) {
+        var za6 = new Date(Date.now() + 9 * 864e5).toISOString();
+        PRISTUP_INFO = { povratak: { uplate: 3, rate: 8, istice: null }, koren: { uplate: 2, rate: 4 }, "mesecna-soba": { istice: za6, poklon: true } };
+        return Promise.resolve(["koren", "povratak", "relaksacija-novac", "mesecna-soba"]);
+      }
+      return sb.from("pristup").select("program,istice,uplate,rate").eq("aktivan", true).eq("email", String(korisnik.email || "").toLowerCase())
         .then(function (r) {
           if (r.error) throw r.error;
           var sad = new Date(); PRISTUP_INFO = {};
           return r.data.filter(function (x) { return !x.istice || new Date(x.istice) > sad; })
-            .map(function (x) { PRISTUP_INFO[x.program] = { uplate: x.uplate, istice: x.istice }; return x.program; });
+            .map(function (x) { PRISTUP_INFO[x.program] = { uplate: x.uplate, istice: x.istice, rate: x.rate }; return x.program; });
         });
     },
     napredak: function () {
@@ -194,10 +207,19 @@
       }
       var redovi = programi.map(function (pr) {
         var r = { email: email, program: pr, aktivan: true, izvor: "rucno", azurirano: new Date().toISOString() };
-        if (program(pr) && program(pr).mesecno) r.uplate = uplate; // koliko modula je otvoreno
+        if (program(pr) && program(pr).mesecno) r.uplate = uplate; // koliko modula je otvoreno (null = sve)
+        if (pr === "koren" || pr === "povratak") r.istice = new Date(Date.now() + 3 * 365 * 864e5).toISOString();
         return r;
       });
-      return sb.from("pristup").upsert(redovi, { onConflict: "email,program" }).then(function (r) { if (r.error) throw r.error; });
+      var poklon = programi.some(function (pr) { return pr === "koren" || pr === "povratak"; }) && programi.indexOf("mesecna-soba") < 0;
+      return sb.from("pristup").upsert(redovi, { onConflict: "email,program" }).then(function (r) {
+        if (r.error) throw r.error;
+        if (!poklon) return;
+        // 6 meseci Kutka na poklon; ako Kutak već postoji, ne diramo ga.
+        return sb.from("pristup").upsert([{ email: email, program: "mesecna-soba", aktivan: true, izvor: "poklon", azurirano: new Date().toISOString(),
+          istice: new Date(Date.now() + 182 * 864e5).toISOString() }], { onConflict: "email,program", ignoreDuplicates: true })
+          .then(function (r2) { if (r2.error) throw r2.error; });
+      });
     },
     promeniPristup: function (email, program, aktivan) {
       if (DEMO) {
@@ -214,6 +236,21 @@
       }
       return sb.from("pristup").update({ uplate: n, azurirano: new Date().toISOString() }).eq("email", email).eq("program", programId)
         .then(function (r) { if (r.error) throw r.error; });
+    },
+    upitnikPopunjen: function () {
+      if (DEMO) return Promise.resolve(!!citaj("soba_upitnik", null));
+      return sb.from("upitnik").select("user_id").eq("user_id", korisnik.id).maybeSingle()
+        .then(function (r) { if (r.error) throw r.error; return !!r.data; });
+    },
+    sacuvajUpitnik: function (odgovori) {
+      if (DEMO) { pisi("soba_upitnik", odgovori); return Promise.resolve(); }
+      return sb.from("upitnik").upsert({ user_id: korisnik.id, email: String(korisnik.email || "").toLowerCase(), odgovori: odgovori }, { onConflict: "user_id" })
+        .then(function (r) { if (r.error) throw r.error; });
+    },
+    sviUpitnici: function () {
+      if (DEMO) { var u = citaj("soba_upitnik", null); return Promise.resolve(u ? [{ email: "proba@mejl.com", odgovori: u, napravljeno: new Date().toISOString() }] : []); }
+      return sb.from("upitnik").select("email,odgovori,napravljeno").order("napravljeno", { ascending: false }).limit(50)
+        .then(function (r) { if (r.error) throw r.error; return r.data; });
     },
     pregled: function () {
       if (DEMO) return baza.sviPristupi().then(function (sve) {
@@ -265,7 +302,8 @@
       '<div style="display:flex;flex-direction:column;gap:8px"><label class="oznaka" for="mejl">Tvoj mejl</label>' +
       '<input class="polje" id="mejl" type="email" autocomplete="email" inputmode="email" placeholder="ime@mejl.com" required></div>' +
       '<button class="dugme" type="submit">Pošalji mi link</button>' +
-      '<p class="tiho" style="text-align:center">Link važi sat vremena. Ako ne stigne za par minuta, pogledaj i u Promocije ili Spam.</p></form></main>';
+      '<p class="tiho" style="text-align:center">Link važi sat vremena. Ako ne stigne za par minuta, pogledaj i u Promocije ili Spam.</p>' +
+      '<div class="ulaz-ili"><span>Prvi put si ovde?</span></div><a class="dugme obrub" href="#/ponuda">Pridruži se</a></form></main>';
     document.getElementById("forma").addEventListener("submit", function (e) {
       e.preventDefault();
       var mejl = document.getElementById("mejl").value.trim();
@@ -317,8 +355,14 @@
         '<a class="dugme" style="margin-top:8px" href="#/modul/' + dalje.p.id + "/" + dalje.m.id + '">' + (dalje.novo ? "Počni" : "Nastavi") + "</a></div></section>";
     }
     h += '<div class="soba-desno">';
-    if (moji.length) {
+    // Samostalno kupljeni snimci (npr. Relaksacija) žive u Biblioteci, ali ih kupac vidi i ovde.
+    var mojaBib = S.biblioteka.filter(function (b) { return pristup.indexOf(b.program) >= 0 && !program(b.program); });
+    if (moji.length || mojaBib.length) {
       h += '<section class="okvir prostorije" aria-label="Tvoje prostorije"><div class="nadnaslov">Tvoje prostorije</div>' +
+        mojaBib.map(function (b) {
+          return '<a class="prostorija" href="#/biblioteka/' + esc(b.id) + '"><img src="' + b.slika + '" alt=""><span style="flex:1;display:flex;flex-direction:column;gap:4px"><span class="ime">' +
+            esc(b.naziv) + '</span><span class="tiho">' + esc(b.opis || "Snimak") + ' · u Biblioteci</span></span>' + STRELICA + "</a>";
+        }).join("") +
         moji.map(function (p) {
           var g = p.moduli.filter(function (m) { var x = napredak[p.id + "/" + m.id]; return x && x.gotovo; }).length;
           return '<a class="prostorija" href="#/program/' + p.id + '"><img src="' + p.slika + '" alt=""><span style="flex:1;display:flex;flex-direction:column;gap:4px"><span class="ime">' +
@@ -327,22 +371,24 @@
     } else {
       h += '<div class="okvir prostorije"><div class="poruka">Na ovom mejlu još nema otvorenih programa. Ako si kupio program sa drugim mejlom, odjavi se i uđi sa njim. Ako ne uspeš, piši na <a href="mailto:' + esc(C.MEJL_PODRSKE) + '">' + esc(C.MEJL_PODRSKE) + "</a>.</div></div>";
     }
-    var predlozi = ostali.map(function (p) { return { naziv: p.naziv, slika: p.slika, link: "#/program/" + p.id }; })
-      .concat(nemaBib.map(function (b) { return { naziv: b.naziv, slika: b.slika }; }));
+    var predlozi = ostali.map(function (p) { return { naziv: p.naziv, slika: p.slika, link: "#/ponuda/" + p.id }; })
+      .concat(nemaBib.map(function (b) { return { naziv: b.naziv, slika: b.slika, link: "#/ponuda/" + b.program }; }));
     if (predlozi.length) {
       var pr = predlozi[0];
+      h += '<a class="malo-dugme" href="#/ponuda" style="align-self:flex-start">Svi programi →</a>';
       h += '<a class="predlog" href="' + esc(pr.link || "https://upoznajsebe.com/") + '"' + (pr.link ? "" : ' target="_blank" rel="noopener"') + '>' +
         '<img src="' + pr.slika + '" alt="" style="width:56px;height:56px;object-fit:cover;flex:none"><span><span class="nadnaslov" style="font-size:10px">Još iz Upoznaj Sebe</span>' +
         '<span style="display:block;font-family:var(--serif);font-style:italic;font-size:20px;color:var(--ink)">' + esc(pr.naziv) + "</span></span></a>";
     }
-    var poklon = PODESAVANJA.kutakPoklon || {};
-    if (poklon.link && pristup.indexOf("koren") >= 0 && pristup.indexOf("mesecna-soba") < 0) {
-      var kutak = program("mesecna-soba");
-      h += '<section class="promocija" aria-label="Poklon uz Koren"><img src="slike/mesecna.jpg" alt=""><div class="promocija-tekst"><div class="nadnaslov">Poklon uz Koren</div>' +
-        "<h3>Prvi mesec " + esc(kutak ? kutak.naziv : "Kutka") + " je tvoj.</h3>" +
-        '<p class="tekst">Svakog meseca te u Kutku čeka novi video i tekstovi koje čitaš svojim tempom. Prvi mesec ti poklanjam. Posle toga 19€ mesečno, a otkazuješ kad poželiš.</p>' +
-        (poklon.kod ? '<p class="tiho">Kod za poklon: <strong style="letter-spacing:.12em;color:var(--pl)">' + esc(poklon.kod) + "</strong></p>" : "") +
-        '<a class="dugme obrub" href="' + esc(poklon.link) + '" target="_blank" rel="noopener">Uzmi poklon</a></div></section>';
+    var kInfo = PRISTUP_INFO["mesecna-soba"] || {}, kOff = ponudaZa("mesecna-soba") || {};
+    var kDana = kInfo.istice ? Math.ceil((new Date(kInfo.istice) - new Date()) / 864e5) : null;
+    var imaProgram = pristup.indexOf("koren") >= 0 || pristup.indexOf("povratak") >= 0;
+    if ((kDana != null && kDana <= 21 && pristup.indexOf("mesecna-soba") >= 0) || (imaProgram && pristup.indexOf("mesecna-soba") < 0)) {
+      var istekao = pristup.indexOf("mesecna-soba") < 0;
+      h += '<section class="promocija" aria-label="Kutak"><img src="slike/mesecna.jpg" alt=""><div class="promocija-tekst"><div class="nadnaslov">Kutak</div>' +
+        "<h3>" + (istekao ? "Tvoj Kutak je zatvoren." : "Tvoj Kutak ističe za " + kDana + (kDana === 1 ? " dan." : " dana.")) + "</h3>" +
+        '<p class="tekst">' + (istekao ? "Novi video i tekstovi i dalje stižu svakog meseca. Možeš da se vratiš kad god poželiš." : "Ako želiš da ti i dalje svakog meseca stiže novi video i tekstovi, nastavi bez prekida.") + "</p>" +
+        (kOff.kupi ? '<a class="dugme obrub" href="' + esc(kOff.kupi) + '">Nastavi za ' + esc(kOff.cena || "19 € mesečno") + "</a>" : '<a class="dugme obrub" href="#/ponuda/mesecna-soba">Pogledaj Kutak</a>') + "</div></section>";
     }
     h += '<div id="promocije"></div></div></div></main>' + meni("soba");
     app.innerHTML = h;
@@ -388,9 +434,8 @@
       redosled(p).map(function (m) {
         var st = statusModula(p, m, napredak, tren);
         if (zakljucan(p, m)) {
-          var za = p.moduli.indexOf(m) - otvoreno(p) + 1;
           return '<div class="red zakljucan"><span class="broj">' + esc(m.rim) + '</span><span style="flex:1"><span class="naziv">' + esc(m.naziv) + '</span><span class="status">' +
-            (za === 1 ? "Otvara se sledećeg meseca" : "Otvara se za " + za + (za < 5 ? " meseca" : " meseci")) + "</span></span></div>";
+            "Otvara se sa sledećom ratom" + "</span></span></div>";
         }
         return '<a class="red ' + st[0] + '" href="#/modul/' + p.id + "/" + m.id + '"><span class="broj">' + esc(clanstvo(p) ? (m.mesec || "").split(" ")[0].slice(0, 3) : m.rim) + '</span><span style="flex:1"><span class="naziv">' + esc(m.naziv) + "</span>" +
           (m.podnaslov ? '<span class="pod">' + esc(m.podnaslov) + "</span>" : "") + (st[1] ? '<span class="status">' + st[1] + "</span>" : "") + "</span></a>";
@@ -404,12 +449,113 @@
     app.innerHTML = h;
   }
 
+  /* ---------- upitnik pri prvom ulasku ---------- */
+  function ekranUpitnik(dalje) {
+    app.innerHTML = '<main class="ekran bez-menija">' + demoTraka() + zaglavlje() +
+      '<div class="okvir" style="max-width:620px;padding-top:40px;display:flex;flex-direction:column;gap:22px">' +
+      '<div class="nadnaslov">Dobro došao</div><h1>Pre nego što <em>uđeš.</em></h1>' +
+      '<p class="tekst">Četiri kratka pitanja. Odgovore čitam samo ja, i pomažu mi da Prostor pravim za ljude koji su u njemu. Možeš i da preskočiš.</p>' +
+      '<form id="upitnik" class="forma-ured" style="display:flex;flex-direction:column;gap:18px">' +
+      polje("u-ime", "Kako da ti se obraćam?", "") +
+      polje("u-dovodi", "Šta te dovodi u Prostor?", "", "dugo") +
+      polje("u-promena", "Šta bi voleo da bude drugačije za tebe za nekoliko meseci?", "", "dugo") +
+      izbor("u-izvor", "Kako si čuo za mene?", [["instagram", "Instagram"], ["preporuka", "Preporuka"], ["sajt", "Sajt"], ["drugo", "Drugo"]], "instagram") +
+      '<button class="dugme" type="submit">Sačuvaj i uđi</button>' +
+      '<button class="malo-dugme" type="button" id="u-preskoci" style="align-self:center">Preskoči</button></form></div></main>';
+    function gotovo(odg) {
+      baza.sacuvajUpitnik(odg).catch(function (e) { console.error(e); }).then(function () {
+        try { localStorage.setItem("soba_upitnik_" + korisnik.id, "1"); } catch (_) {}
+        dalje();
+      });
+    }
+    document.getElementById("upitnik").addEventListener("submit", function (e) {
+      e.preventDefault();
+      gotovo({ ime: vr("u-ime"), dovodi: document.getElementById("u-dovodi").value.trim(), promena: document.getElementById("u-promena").value.trim(), izvor: vr("u-izvor") });
+    });
+    document.getElementById("u-preskoci").addEventListener("click", function () { gotovo({ preskocio: true }); });
+  }
+  var UPITNIK_PROVEREN = false;
+  function trebaUpitnik() {
+    if (JE_UREDNIK || !korisnik) return Promise.resolve(false);
+    try { if (localStorage.getItem("soba_upitnik_" + korisnik.id)) return Promise.resolve(false); } catch (_) {}
+    return baza.upitnikPopunjen().then(function (da) {
+      if (da) { try { localStorage.setItem("soba_upitnik_" + korisnik.id, "1"); } catch (_) {} }
+      return !da;
+    }).catch(function () { return false; });
+  }
+
+  /* ---------- ponuda: javne prodajne stranice ---------- */
+  var REDOSLED_PONUDE = ["mesecna-soba", "koren", "povratak", "relaksacija-novac"];
+  function ponudaZa(id) {
+    var osnovno = (OSNOVNI.ponuda || {})[id];
+    if (!osnovno) return null;
+    var izmene = (PODESAVANJA.ponuda || {})[id] || {};
+    var o = {}; Object.keys(osnovno).forEach(function (k) { o[k] = osnovno[k]; });
+    Object.keys(izmene).forEach(function (k) { if (izmene[k] !== "" && izmene[k] != null) o[k] = izmene[k]; });
+    if (izmene.kupi !== undefined) o.kupi = izmene.kupi;
+    if (izmene.kupiRate !== undefined) o.kupiRate = izmene.kupiRate;
+    var p = program(id), b = S.biblioteka.filter(function (x) { return x.program === id; })[0];
+    o.id = id; o.naziv = p ? p.naziv : b ? b.naziv : id; o.slika = p ? p.slika : b ? b.slika : "slike/cvetovi.jpg";
+    o.pretplata = /mese/i.test(o.cena || "");
+    return o;
+  }
+  function vrhPonude() {
+    if (korisnik) return zaglavlje();
+    return '<header class="zaglavlje"><a class="logo" href="#/ponuda">Upoznaj Sebe</a><a class="malo-dugme" href="#/">Uđi u Prostor</a></header>';
+  }
+  function ekranPonuda(pristup) {
+    var stavke = REDOSLED_PONUDE.map(ponudaZa).filter(Boolean);
+    var h = '<main class="ekran ponuda' + (korisnik ? "" : " bez-menija") + '">' + demoTraka() + vrhPonude() +
+      '<div class="okvir pozdrav"><div class="nadnaslov">Prostor Upoznaj Sebe</div><h1>Pridruži <em>se.</em></h1>' +
+      '<p class="tekst">U Prostor ulaziš na jedan od ovih načina. Sve što dobiješ živi na jednom mestu: video, materijali i tvoj dnevnik. Plaćaš karticom, a ulaziš preko linka na mejl, bez lozinke.</p></div>' +
+      '<section class="okvir ponuda-lista">' + stavke.map(function (o) {
+        var imam = pristup.indexOf(o.id) >= 0;
+        return '<a class="ponuda-kartica" href="#/ponuda/' + esc(o.id) + '"><img src="' + esc(o.slika) + '" alt=""><span class="ponuda-tekst">' +
+          '<span class="ime">' + esc(o.naziv) + '</span><span class="tekst" style="font-size:15px">' + esc(o.podnaslov || "") + "</span>" +
+          '<span class="cena">' + (imam ? "Već je tvoj" : esc(o.cena || "") + (o.cenaRate ? " ili " + esc(o.cenaRate) : "")) + "</span></span>" + STRELICA + "</a>";
+      }).join("") + "</section>" +
+      (korisnik ? "" : '<p class="tiho okvir" style="text-align:center;padding-top:28px">Već imaš program? <a href="#/">Uđi u Prostor</a></p>') +
+      "</main>" + (korisnik ? meni("soba") : "");
+    app.innerHTML = h;
+  }
+  function ekranPonudaJedna(o, pristup) {
+    var imam = pristup.indexOf(o.id) >= 0;
+    var otvori = program(o.id) ? "#/program/" + o.id : "#/biblioteka/" + o.id;
+    var dobijas = String(o.dobijas || "").split(/\n/).map(function (x) { return x.trim(); }).filter(Boolean);
+    var dugme = imam ? '<a class="dugme" href="' + otvori + '">Otvori, već je tvoj</a>'
+      : (o.kupi ? '<a class="dugme" href="' + esc(o.kupi) + '">' + (o.kupiRate ? "Plati odjednom · " : "Kupi · ") + esc(o.cena || "") + "</a>" : "") +
+        (o.kupiRate ? '<a class="dugme obrub" href="' + esc(o.kupiRate) + '">Na rate · ' + esc(o.cenaRate || "") + "</a>" : "") +
+        (!o.kupi && !o.kupiRate ? '<span class="dugme obrub" aria-disabled="true" style="opacity:.6;cursor:default">Uskoro</span>' : "");
+    app.innerHTML = '<main class="ekran ponuda' + (korisnik ? "" : " bez-menija") + '">' + demoTraka() + vrhPonude() +
+      '<div class="ponuda-slika"><img src="' + esc(o.slika) + '" alt=""></div>' +
+      '<div class="okvir pozdrav"><a class="malo-dugme" href="#/ponuda">← Svi programi</a><h1>' + esc(o.naziv) + "</h1>" +
+      (o.podnaslov ? '<p class="tekst" style="font-family:var(--serif);font-style:italic;font-size:22px;color:var(--pl)">' + esc(o.podnaslov) + "</p>" : "") + "</div>" +
+      '<div class="dve-kolone okvir"><div class="glavno kolona">' +
+      (o.zaKoga ? '<section><div class="nadnaslov">Za koga je</div><p class="tekst">' + esc(o.zaKoga) + "</p></section>" : "") +
+      (o.opis ? '<section><div class="nadnaslov">Kako izgleda</div><p class="tekst">' + esc(o.opis) + "</p></section>" : "") +
+      (dobijas.length ? '<section><div class="nadnaslov">Šta dobijaš</div><ul class="ponuda-dobijas">' + dobijas.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul></section>" : "") +
+      '</div><aside class="strana kolona"><section class="ponuda-kupi">' +
+      '<span class="cena-velika">' + esc(o.cena || "") + "</span>" + (o.cenaRate ? '<span class="tiho">ili ' + esc(o.cenaRate) + "</span>" : "") +
+      (o.nacin ? '<p class="tiho">' + esc(o.nacin) + "</p>" : "") + dugme +
+      (imam ? "" : '<ol class="ponuda-koraci"><li>Plaćaš karticom preko sigurne stranice za plaćanje.</li><li>Za minut ti stiže mejl „Tvoj Prostor je otvoren”.</li><li>Klikneš na dugme u mejlu i ulaziš. Lozinka ti ne treba.</li></ol>' +
+        '<p class="tiho">Imaš kod za popust? Upisuješ ga na stranici za plaćanje.' + (o.pretplata ? " Pretplatu otkazuješ kad želiš." : "") + "</p>") +
+      '<p class="tiho">Pitanja: <a href="mailto:' + esc(C.MEJL_PODRSKE) + '">' + esc(C.MEJL_PODRSKE) + "</a></p></section></aside></div></main>" + (korisnik ? meni("soba") : "");
+  }
+  function ekranHvala() {
+    app.innerHTML = '<main class="ekran bez-menija">' + demoTraka() + vrhPonude() +
+      '<div class="okvir" style="padding-top:56px;display:flex;flex-direction:column;gap:18px;max-width:560px">' +
+      '<div class="nadnaslov">Uplata je prošla</div><h1>Hvala ti. <em>Tvoj Prostor se otvara.</em></h1>' +
+      '<p class="tekst">Za minut ti na mejl stiže poruka „Tvoj Prostor je otvoren”. Klikni na dugme u njoj i ulaziš pravo unutra, lozinka ti ne treba.</p>' +
+      '<p class="tiho">Ako mejl ne stigne za pet minuta, pogledaj u Promocije ili Spam. Ako ga ni tamo nema, piši na <a href="mailto:' + esc(C.MEJL_PODRSKE) + '">' + esc(C.MEJL_PODRSKE) + "</a>.</p>" +
+      (korisnik ? '<a class="dugme" href="#/">Idi u Prostor</a>' : "") + "</div></main>" + (korisnik ? meni("soba") : "");
+  }
+
   function ekranZatvoreno(p) {
     app.innerHTML = '<main class="ekran">' + zaglavlje() + '<div class="okvir" style="padding-top:44px;display:flex;flex-direction:column;gap:18px">' +
       '<div class="nadnaslov">' + esc(p ? p.naziv : "Program") + "</div><h1>Ova prostorija <em>još nije tvoja.</em></h1>" +
       '<p class="tekst">' + (clanstvo(p) ? "Kutak se otvara uz članarinu. Svakog meseca ovde stiže novi video i tekstovi koje čitaš svojim tempom." : "Program nije otvoren na mejlu sa kojim si ušao.") +
       ' Ako si ga kupio sa drugim mejlom, odjavi se i uđi sa njim. Ako ne uspe, piši na <a href="mailto:' + esc(C.MEJL_PODRSKE) + '">' + esc(C.MEJL_PODRSKE) + '</a>.</p>' +
-      '<a class="dugme obrub" href="' + esc((p && p.prodaja) || "https://upoznajsebe.com/") + '" target="_blank" rel="noopener">Saznaj više</a></div></main>' + meni("soba");
+      '<a class="dugme" href="#/ponuda/' + esc(p ? p.id : "") + '">Pogledaj program</a></div></main>' + meni("soba");
   }
 
   var pauzaPrikazana = {};
@@ -438,11 +584,11 @@
       (m.podnaslov ? '<p class="tekst">' + esc(m.podnaslov) + "</p>" : "") + "</div></div>" +
       '<div class="dve-kolone okvir"><div class="glavno kolona">';
     h += '<section style="display:flex;flex-direction:column;gap:10px" aria-label="Video"><div class="video">' +
-      (m.vimeo ? '<iframe id="vimeo" src="https://player.vimeo.com/video/' + encodeURIComponent(m.vimeo) + '?dnt=1&title=0&byline=0&portrait=0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen title="' + esc(m.naziv) + '"></iframe>'
+      (m.vimeo ? videoOkvir(m.vimeo, m.naziv, "vimeo")
         : '<img src="' + p.slika + '" alt=""><div class="prazno">Video uskoro</div>') + "</div>" +
       '<span class="tiho" id="vreme">' + (x.gotovo ? "Odgledano" : x.pozicija ? "Nastavljaš od " + vreme(x.pozicija) : m.trajanje ? "Trajanje " + esc(m.trajanje) : "") + "</span></section>";
     if (m.fantazija) h += '<section style="display:flex;flex-direction:column;gap:10px" aria-label="Vođena fantazija"><div class="nadnaslov">Vođena fantazija</div><div class="video">' +
-      '<iframe src="https://player.vimeo.com/video/' + encodeURIComponent(m.fantazija) + '?dnt=1&title=0&byline=0&portrait=0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen title="Vođena fantazija"></iframe></div>' +
+      videoOkvir(m.fantazija, "Vođena fantazija") + "</div>" +
       '<span class="tiho">Sedi ili lezi udobno. Slušaj kad imaš mir i niko te ne prekida.</span></section>';
     if (m.pismo) h += '<section class="pismo" aria-label="Reč od Milice"><div class="glava"><img src="slike/milica.jpg" alt="Milica Bilbija"><span><span class="nadnaslov" style="font-size:10px">Pre videa</span>' +
       '<span style="display:block;font-family:var(--serif);font-size:19px;color:var(--ink)">Reč od Milice</span></span></div><p class="tekst">' + esc(m.pismo) + '</p><span class="potpis">Milica</span></section>';
@@ -514,7 +660,7 @@
       '<div class="okvir pozdrav"><div class="nadnaslov">Biblioteka</div>' +
       '<h1 style="font-size:42px">Za večeri kad ti <em>treba mir</em></h1><p class="tekst">Slušaj sa slušalicama, u tišini.</p></div>';
     if (otvorena) h += '<section class="okvir blok otvoreno" style="display:flex;flex-direction:column;gap:10px"><div class="video">' +
-      (otvorena.vimeo ? '<iframe src="https://player.vimeo.com/video/' + encodeURIComponent(otvorena.vimeo) + '?dnt=1&title=0&byline=0&portrait=0" allow="autoplay; fullscreen" allowfullscreen title="' + esc(otvorena.naziv) + '"></iframe>'
+      (otvorena.vimeo ? videoOkvir(otvorena.vimeo, otvorena.naziv)
         : '<img src="' + otvorena.slika + '" alt=""><div class="prazno">Snimak uskoro</div>') + '</div><span class="tiho">' + esc(otvorena.naziv) + "</span></section>";
     h += '<div class="dve-kolone"><section class="okvir blok glavno" aria-label="Relaksacije"><div class="nadnaslov">Relaksacije</div>' +
       (stavke.length ? stavke.map(function (b) {
@@ -547,14 +693,14 @@
   function javi(tekst, greska) { var el = document.getElementById("javi"); if (el) { el.textContent = tekst; el.className = "javi" + (greska ? " greska" : ""); } }
 
   function ekranUredjivanje(tab) {
-    var tabovi = [["pregled", "Pregled"], ["polaznici", "Polaznici"], ["sadrzaj", "Sadržaj"], ["naslovna", "Naslovna"], ["promocija", "Promocija"], ["kuponi", "Kuponi"]];
+    var tabovi = [["pregled", "Pregled"], ["polaznici", "Polaznici"], ["sadrzaj", "Sadržaj"], ["naslovna", "Naslovna"], ["ponuda", "Ponuda"], ["promocija", "Promocija"], ["kuponi", "Kuponi"]];
     app.innerHTML = '<main class="ekran ured">' + demoTraka() + zaglavlje() +
       '<div class="okvir pozdrav"><div class="nadnaslov">Samo za tebe</div><h1>Ure<em>đivanje</em></h1></div>' +
       '<nav class="ured-tabovi okvir" aria-label="Delovi uređivanja">' + tabovi.map(function (t) {
         return '<a href="#/uredjivanje/' + t[0] + '"' + (t[0] === tab ? ' aria-current="page"' : "") + ">" + t[1] + "</a>"; }).join("") + "</nav>" +
       '<div class="okvir" id="ured-sadrzaj"><p class="tiho">Učitavam...</p></div><p id="javi" class="javi" role="status"></p></main>' + meni("ured");
     var mesto = document.getElementById("ured-sadrzaj");
-    var f = { pregled: uredPregled, polaznici: uredPolaznici, sadrzaj: uredSadrzaj, naslovna: uredNaslovna, promocija: uredPromocija, kuponi: uredKuponi }[tab] || uredPregled;
+    var f = { pregled: uredPregled, polaznici: uredPolaznici, sadrzaj: uredSadrzaj, naslovna: uredNaslovna, ponuda: uredPonuda, promocija: uredPromocija, kuponi: uredKuponi }[tab] || uredPregled;
     Promise.resolve(f(mesto)).catch(function (e) { console.error(e); mesto.innerHTML = '<div class="poruka">Nije učitano. Osveži stranicu.</div>'; });
   }
 
@@ -572,7 +718,19 @@
           return '<div class="ured-red"><span><strong>' + esc(x.email) + '</strong><br><span class="tiho">' + esc(nazivPrograma(x.program)) + (x.aktivan ? "" : " · zatvoren") + "</span></span>" +
             '<span class="tiho" style="text-align:right">' + (x.poslednja_aktivnost ? "Poslednji put " + lepDatum(String(x.poslednja_aktivnost).slice(0, 10)) : "Još nije ušao") +
             "<br>Odgledano modula: " + (x.odgledano_modula || 0) + "</span></div>";
-        }).join("") : '<p class="tekst">Još nema polaznika.</p>') + "</section>";
+        }).join("") : '<p class="tekst">Još nema polaznika.</p>') + "</section>" + '<div id="odgovori"></div>';
+      baza.sviUpitnici().then(function (u) {
+        var popunjeni = u.filter(function (x) { return x.odgovori && !x.odgovori.preskocio; });
+        if (!popunjeni.length) return;
+        var izvori = { instagram: "Instagram", preporuka: "Preporuka", sajt: "Sajt", drugo: "Drugo" };
+        document.getElementById("odgovori").innerHTML = '<section class="ured-blok"><div class="nadnaslov">Odgovori pri prvom ulasku</div>' +
+          popunjeni.map(function (x) {
+            var o = x.odgovori;
+            return '<div class="ured-red kolona-red"><span><strong>' + esc(o.ime || x.email) + '</strong> <span class="tiho">' + esc(x.email) + " · " + esc(izvori[o.izvor] || "") + " · " + lepDatum(String(x.napravljeno).slice(0, 10)).toLowerCase() + "</span></span>" +
+              (o.dovodi ? '<span class="tekst" style="font-size:15px"><em>Šta ga dovodi:</em> ' + esc(o.dovodi) + "</span>" : "") +
+              (o.promena ? '<span class="tekst" style="font-size:15px"><em>Šta želi da se promeni:</em> ' + esc(o.promena) + "</span>" : "") + "</div>";
+          }).join("") + "</section>";
+      }).catch(function (e) { console.error(e); });
     });
   }
 
@@ -592,7 +750,7 @@
         polje("novi-mejl", "Mejl polaznika", "", "email", "Isti mejl kojim je platio. Polaznik ulazi preko linka na taj mejl.") +
         '<fieldset class="polje-ured"><legend>Programi</legend>' + PROGRAMI_SVI().map(function (p) {
           return '<label class="cek"><input type="checkbox" name="prog" value="' + esc(p.id) + '"> ' + esc(p.naziv) + "</label>"; }).join("") + "</fieldset>" +
-        polje("novi-uplate", "Povratak sebi: koliko modula mu je do sada otvoreno", "1", "number", "Važi samo za Povratak sebi. Svakog meseca ovde dodaš jedan modul (dugme + ispod).") +
+        polje("novi-uplate", "Koliko modula mu je otvoreno (prazno = svi)", "", "number", "Za one koji plaćaju na rate van Polar-a. Uz Koren i Povratak sebi automatski ide 6 meseci Kutka i pristup na 3 godine.") +
         '<button class="dugme" id="dodaj">Otvori pristup</button></section>' +
         '<section class="ured-blok"><div class="nadnaslov">Polaznici i programi</div>' + (Object.keys(poMejlu).length ? Object.keys(poMejlu).map(function (m) {
           return '<div class="ured-red kolona-red"><strong>' + esc(m) + '</strong><div class="cipovi">' + poMejlu[m].map(function (x) {
@@ -603,7 +761,8 @@
         var mejl = vr("novi-mejl"); var progs = Array.prototype.map.call(document.querySelectorAll('input[name="prog"]:checked'), function (c) { return c.value; });
         if (!/^\S+@\S+\.\S+$/.test(mejl)) return javi("Upiši ispravan mejl.", true);
         if (!progs.length) return javi("Izaberi bar jedan program.", true);
-        var up = Math.max(1, Math.min(parseInt(vr("novi-uplate"), 10) || 1, 99));
+        var upRaw = parseInt(vr("novi-uplate"), 10);
+        var up = upRaw > 0 ? Math.min(upRaw, 99) : null;
         baza.dodajPristup(mejl, progs, up).then(function () { javi("Pristup je otvoren za " + mejl + "."); uredPolaznici(mesto); }).catch(function (e) { console.error(e); javi("Nije sačuvano.", true); });
       });
       mesto.querySelectorAll("[data-uplate]").forEach(function (b) {
@@ -629,9 +788,9 @@
     var p = kopija.programi.filter(function (x) { return x.id === izabraniProgram; })[0] || kopija.programi[0];
     izabraniProgram = p.id;
     var sveska = (p.uzProgram || []).filter(function (u) { return /sveska|dnevnik/i.test(u.naziv); })[0];
-    var polja = clanstvo(p) ? [["mesec", "Mesec", "text", "npr. Decembar 2026"], ["naziv", "Naslov meseca"], ["podnaslov", "Podnaslov"], ["vimeo", "Vimeo broj", "text", "Broj iz linka vimeo.com/123456789"], ["trajanje", "Trajanje", "text", "npr. 20 min"],
-      ["pismo", "Tekst za ovaj mesec", "dugo", "Tekst za pomoć i istraživanje sebe. Prazan red pravi novi pasus."], ["zadatak", "Vežba za ovaj mesec", "dugo"]] : [["naziv", "Naziv modula"], ["podnaslov", "Podnaslov"], ["vimeo", "Vimeo broj", "text", "Broj iz linka vimeo.com/123456789"], ["trajanje", "Trajanje", "text", "npr. 24 min"],
-      ["fantazija", "Vođena fantazija (Vimeo broj)", "text", "Prazno = ovaj modul nema fantaziju"], ["sveska", "Radna sveska za ovaj modul (link do PDF-a)", "url"],
+    var polja = clanstvo(p) ? [["mesec", "Mesec", "text", "npr. Decembar 2026"], ["naziv", "Naslov meseca"], ["podnaslov", "Podnaslov"], ["vimeo", "Video (Vimeo ili YouTube)", "text", "Nalepi link sa Vimea ili YouTube-a (Unlisted)"], ["trajanje", "Trajanje", "text", "npr. 20 min"],
+      ["pismo", "Tekst za ovaj mesec", "dugo", "Tekst za pomoć i istraživanje sebe. Prazan red pravi novi pasus."], ["zadatak", "Vežba za ovaj mesec", "dugo"]] : [["naziv", "Naziv modula"], ["podnaslov", "Podnaslov"], ["vimeo", "Video (Vimeo ili YouTube)", "text", "Nalepi link sa Vimea ili YouTube-a (Unlisted)"], ["trajanje", "Trajanje", "text", "npr. 24 min"],
+      ["fantazija", "Vođena fantazija (Vimeo ili YouTube link)", "text", "Prazno = ovaj modul nema fantaziju"], ["sveska", "Radna sveska za ovaj modul (link do PDF-a)", "url"],
       ["pismo", "Tvoje pismo pre videa", "dugo"], ["zadatak", "Zadatak za ovu nedelju", "dugo"], ["trebalo", "Šta ti je tada trebalo", "dugo"], ["recenica", "Rečenica na kraju", "text"]];
     mesto.innerHTML = '<div class="cipovi" style="margin-bottom:24px">' + kopija.programi.map(function (x) {
         return '<button class="cip' + (x.id === p.id ? " uklj" : "") + '" data-izaberi="' + esc(x.id) + '">' + esc(x.naziv) + "</button>"; }).join("") + "</div>" +
@@ -673,6 +832,35 @@
     });
   }
 
+  var izabranaPonuda = "koren";
+  function uredPonuda(mesto) {
+    var o = ponudaZa(izabranaPonuda) || ponudaZa("koren");
+    mesto.innerHTML = '<div class="cipovi" style="margin-bottom:24px">' + REDOSLED_PONUDE.map(function (id) {
+        var x = ponudaZa(id); return '<button class="cip' + (id === o.id ? " uklj" : "") + '" data-ponuda="' + esc(id) + '">' + esc(x.naziv) + "</button>"; }).join("") + "</div>" +
+      '<section class="ured-blok forma-ured"><div class="nadnaslov">Prodajna stranica: ' + esc(o.naziv) + "</div>" +
+      '<p class="tiho">Ovo vidi svako, i ko nije kupio. <a href="#/ponuda/' + esc(o.id) + '" target="_blank" rel="noopener">Pogledaj stranicu</a></p>' +
+      polje("po-kupi", "Link za kupovinu u celosti (Polar checkout link)", o.kupi, "url", "Polar → Products → Checkout Links. Dok su oba linka prazna, na dugmetu piše „Uskoro”.") +
+      polje("po-cena", "Cena u celosti", o.cena, "text", "Npr. 229 € ili 19 € mesečno") +
+      polje("po-kupirate", "Link za kupovinu na rate (nije obavezno)", o.kupiRate, "url") +
+      polje("po-cenarate", "Cena na rate (nije obavezno)", o.cenaRate, "text", "Npr. 4 × 60 €") +
+      polje("po-nacin", "Kako se plaća", o.nacin, "text") +
+      polje("po-podnaslov", "Podnaslov", o.podnaslov) +
+      polje("po-zakoga", "Za koga je", o.zaKoga, "dugo") +
+      polje("po-opis", "Kako izgleda", o.opis, "dugo") +
+      polje("po-dobijas", "Šta dobijaš (svaki red jedna stavka)", o.dobijas, "dugo") +
+      '<button class="dugme" id="po-sacuvaj">Sačuvaj stranicu</button></section>';
+    mesto.querySelectorAll("[data-ponuda]").forEach(function (b) {
+      b.addEventListener("click", function () { izabranaPonuda = b.dataset.ponuda; uredPonuda(mesto); });
+    });
+    document.getElementById("po-sacuvaj").addEventListener("click", function () {
+      var sve = JSON.parse(JSON.stringify(PODESAVANJA.ponuda || {}));
+      sve[o.id] = { kupi: vr("po-kupi"), cena: vr("po-cena"), kupiRate: vr("po-kupirate"), cenaRate: vr("po-cenarate"), nacin: vr("po-nacin"), podnaslov: vr("po-podnaslov"), zaKoga: vr("po-zakoga"), opis: vr("po-opis"), dobijas: document.getElementById("po-dobijas").value.trim() };
+      if ([sve[o.id].kupi, sve[o.id].kupiRate].some(function (l) { return l && !/^https:\/\//.test(l); })) return javi("Link za kupovinu mora da počinje sa https://", true);
+      baza.sacuvajPodesavanje("ponuda", sve).then(function () { PODESAVANJA.ponuda = sve; javi("Stranica je sačuvana."); })
+        .catch(function (e) { console.error(e); javi("Nije sačuvano.", true); });
+    });
+  }
+
   function uredNaslovna(mesto) {
     var n = PODESAVANJA.naslovna || {};
     mesto.innerHTML = '<section class="ured-blok forma-ured"><div class="nadnaslov">Početna Prostora</div>' +
@@ -680,16 +868,7 @@
       polje("n-poruka", "Poruka meseca", n.poruka || "", "dugo", "Vide je svi polaznici ispod pozdrava. Ostavi prazno kad ne treba.") +
       izbor("n-slika", "Fotografija na ulazu", SLIKE, n.slikaUlaz || "slike/cvetovi.jpg") +
       '<button class="dugme" id="sacuvaj-naslovnu">Sačuvaj naslovnu</button></section>' +
-      '<section class="ured-blok forma-ured"><div class="nadnaslov">Poklon uz Koren: prvi mesec Kutka</div>' +
-      '<p class="tiho">Kartica se pojavljuje samo onima koji imaju Koren, a nemaju Kutak. Ostavi link prazan i kartica nestaje.</p>' +
-      polje("pk-link", "Link za kupovinu Kutka (Polar checkout link)", (PODESAVANJA.kutakPoklon || {}).link || "", "url") +
-      polje("pk-kod", "Kod za poklon (iz Polar → Discounts)", (PODESAVANJA.kutakPoklon || {}).kod || "") +
-      '<button class="dugme" id="sacuvaj-poklon">Sačuvaj poklon</button></section>';
-    document.getElementById("sacuvaj-poklon").addEventListener("click", function () {
-      var v = { link: vr("pk-link"), kod: vr("pk-kod").toUpperCase() };
-      baza.sacuvajPodesavanje("kutakPoklon", v).then(function () { PODESAVANJA.kutakPoklon = v; javi(v.link ? "Poklon je uključen." : "Poklon je isključen."); })
-        .catch(function (e) { console.error(e); javi("Nije sačuvano.", true); });
-    });
+      '';
     document.getElementById("sacuvaj-naslovnu").addEventListener("click", function () {
       var v = { recenica: vr("n-recenica"), poruka: vr("n-poruka"), slikaUlaz: vr("n-slika") };
       baza.sacuvajPodesavanje("naslovna", v).then(function () { PODESAVANJA.naslovna = v; javi("Naslovna je sačuvana."); })
@@ -814,8 +993,24 @@
 
   /* ---------- usmeravanje ---------- */
   function prikazi() {
+    var put = location.hash.replace(/^#\/?/, "").split("?")[0].split("/").filter(Boolean);
+    if (put[0] === "ponuda" || put[0] === "hvala") {
+      window.scrollTo(0, 0);
+      if (put[0] === "hvala") return ekranHvala();
+      var nastavi = function (pristup) {
+        var o = put[1] && ponudaZa(put[1]);
+        return o ? ekranPonudaJedna(o, pristup) : ekranPonuda(pristup);
+      };
+      if (!korisnik) return nastavi([]);
+      if (!SADRZAJ_UCITAN) return pripremi().then(prikazi);
+      return baza.pristup().then(function (r) { nastavi(prosiri(r)); }).catch(function () { nastavi([]); });
+    }
     if (!korisnik) { SADRZAJ_UCITAN = false; JE_UREDNIK = false; return ekranUlaz(); }
     if (!SADRZAJ_UCITAN) return pripremi().then(prikazi);
+    if (!UPITNIK_PROVEREN) {
+      UPITNIK_PROVEREN = true;
+      return trebaUpitnik().then(function (treba) { if (treba) return ekranUpitnik(prikazi); prikazi(); });
+    }
     var delovi = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
     window.scrollTo(0, 0);
     if (delovi[0] === "uredjivanje") return JE_UREDNIK ? ekranUredjivanje(delovi[1] || "pregled") : (location.hash = "#/");

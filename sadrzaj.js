@@ -7,6 +7,7 @@ window.SOBA_SADRZAJ = {
   programi: [
     {
       id: "koren",
+      mesecno: true, // na rate se otvara deo po deo
       naziv: "Koren anksioznosti",
       kratko: "9 modula",
       slika: "slike/cvetovi.jpg",
@@ -53,7 +54,7 @@ window.SOBA_SADRZAJ = {
       id: "povratak",
       mesecno: true, // jedan modul za svaku uplatu
       naziv: "Povratak sebi",
-      kratko: "8 modula, jedan mesečno",
+      kratko: "8 modula",
       slika: "slike/more.jpg",
       naslovnaTekst: false,
       citat: "",
@@ -90,6 +91,41 @@ window.SOBA_SADRZAJ = {
       ],
     },
   ],
+  // Prodajne stranice (javne, i za one koji još nisu kupili). Sve se menja u Uređivanje → Ponuda.
+  ponuda: {
+    "mesecna-soba": {
+      cena: "19 € mesečno", nacin: "Mesečna članarina. Otkazuješ kad želiš.",
+      podnaslov: "Jedan video mesečno i tekstovi koje čitaš svojim tempom",
+      zaKoga: "Za tebe ako želiš da redovno budeš uz sebe, malo po malo, bez velikog programa. Ako ti prija da jednom mesečno sedneš, pogledaš, pročitaš i zapišeš šta se u tebi pomerilo.",
+      opis: "Svakog meseca u Kutku stiže novi video i tekstovi u kojima korak po korak razlažemo priče koje nosimo iz detinjstva: šta smo tada zaključili o sebi i kako to danas živimo.",
+      dobijas: "Novi video svakog meseca\nTekstovi uz svaki video\nVežba za taj mesec\nMoj dnevnik, prostor samo za tebe",
+      kupi: "", cenaRate: "", kupiRate: "",
+    },
+    koren: {
+      cena: "229 €", cenaRate: "4 × 60 €", nacin: "Program je tvoj 3 godine. Uz program dobijaš 6 meseci Kutka na poklon.",
+      podnaslov: "Odakle dolazi tvoj nemir",
+      zaKoga: "Za tebe ako se budiš sa stegom u grudima pre nego što se išta desilo. Ako posle svakog razgovora u glavi vrtiš šta si rekao. Ako se smiriš tek kad sve proveriš, pa sutra kreneš ispočetka.",
+      opis: "Devet modula prolazi kroz tvoje odrastanje, od vremena pre prvih reči do odnosa koje danas imaš. U svakom vidiš gde je nemir naučen i šta ti je tada trebalo. Kad platiš odjednom, odmah dobijaš ceo program. Na rate se otvara deo po deo, sa svakom ratom.",
+      dobijas: "9 video modula, svaki sa zadatkom\nDnevnik korena, radna sveska uz program\nVođena relaksacija\nMapa pojmova\n6 meseci Kutka na poklon\nPristup 3 godine",
+      kupi: "", kupiRate: "",
+    },
+    povratak: {
+      cena: "299 €", cenaRate: "8 × 40 €", nacin: "Program je tvoj 3 godine. Uz program dobijaš 6 meseci Kutka na poklon.",
+      podnaslov: "Rad sa detetom koje si bio",
+      zaKoga: "Za tebe ako znaš da budeš dobar, koristan i jak, a ne znaš šta tebi treba. Ako se u vezama prilagođavaš dok ne nestaneš, pa se onda ljutiš na sebe.",
+      opis: "Osam modula, uz svaki vođena fantazija i radna sveska. Polako upoznaješ dete koje si bio i učiš da budeš uz njega. Kad platiš odjednom, odmah dobijaš ceo program. Na rate se otvara jedan modul sa svakom ratom.",
+      dobijas: "8 video modula\n8 vođenih fantazija\n8 radnih sveski\n6 meseci Kutka na poklon\nPristup 3 godine",
+      kupi: "", kupiRate: "",
+    },
+    "relaksacija-novac": {
+      cena: "15 €", nacin: "Jednokratno. Slušaš kad god ti treba.",
+      podnaslov: "Vođena fantazija o novcu i primanju",
+      zaKoga: "Za tebe ako ti se grlo stegne kad treba da kažeš cenu. Ako lako daješ, a teško primaš, i novac ti ode čim stigne.",
+      opis: "Vođena fantazija kroz koju vidiš šta ti je o novcu rečeno dok si bio mali i kako to danas utiče na to koliko sebi dozvoljavaš.",
+      dobijas: "Vođena fantazija u Biblioteci\nSlušaš je kad god ti treba",
+      kupi: "", cenaRate: "", kupiRate: "",
+    },
+  },
   biblioteka: [
     { id: "relaksacija-novac", program: "relaksacija-novac", naziv: "Relaksacija za rad sa novcem", opis: "Vođena fantazija", vimeo: "", slika: "slike/relaksacija.jpg" },
     { id: "relaksacija-koren", program: "koren", naziv: "Vođena relaksacija", opis: "Koren anksioznosti · 18 min", vimeo: "", slika: "slike/cvetovi.jpg" },
