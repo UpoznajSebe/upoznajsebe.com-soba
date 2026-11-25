@@ -36,7 +36,20 @@
     if (m) return m[1];
     return /^[A-Za-z0-9_-]{11}$/.test(v) && /[A-Za-z_-]/.test(v) ? v : null;
   }
+  // Fajlovi otpremljeni u Prostor (privatna Supabase Storage kanta "biblioteka"): vrednost "fajl:program/ime.mp3"
+  function jeFajl(v) { return /^fajl:/.test(String(v || "")); }
+  function putanja(v) { return String(v || "").replace(/^fajl:/, ""); }
+  function jeZvuk(v) { return /\.(mp3|m4a|aac|wav|ogg|oga)$/i.test(String(v || "")); }
+  function driveId(v) { var m = String(v || "").match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=)([A-Za-z0-9_-]{20,})/); return m ? m[1] : null; }
+  function imeFajla(v) { return putanja(v).split("/").pop().replace(/^\d+-/, ""); }
   function videoOkvir(v, naslov, id) {
+    if (jeFajl(v)) {
+      var pt = putanja(v);
+      return jeZvuk(pt) ? '<div class="zvuk"><audio controls preload="none" data-fajl="' + esc(pt) + '" title="' + esc(naslov) + '"></audio></div>'
+        : '<video controls preload="none" playsinline data-fajl="' + esc(pt) + '" title="' + esc(naslov) + '"></video>';
+    }
+    var dr = driveId(v);
+    if (dr) return '<iframe src="https://drive.google.com/file/d/' + dr + '/preview" allow="autoplay; fullscreen" allowfullscreen title="' + esc(naslov) + '"></iframe>';
     var yt = youtubeId(v);
     var src = yt ? "https://www.youtube-nocookie.com/embed/" + yt + "?rel=0&modestbranding=1&playsinline=1"
       : "https://player.vimeo.com/video/" + encodeURIComponent(String(v).replace(/\D/g, "")) + "?dnt=1&title=0&byline=0&portrait=0";
@@ -46,11 +59,27 @@
   function redosled(p) { return clanstvo(p) ? p.moduli.slice().reverse() : p.moduli; }
   var DEMO = !(C.SUPABASE_URL && C.SUPABASE_KLJUC);
   var app = document.getElementById("app");
+  function potpisi(pt) {
+    var k = POTPISI[pt]; if (k && k.do > Date.now()) return Promise.resolve(k.url);
+    return baza.potpisFajla(pt).then(function (url) { POTPISI[pt] = { url: url, do: Date.now() + 50 * 60000 }; return url; });
+  }
+  function razresiFajlove() {
+    app.querySelectorAll('a[href^="fajl:"]').forEach(function (a) {
+      var pt = putanja(a.getAttribute("href")); a.removeAttribute("href");
+      potpisi(pt).then(function (u) { a.setAttribute("href", u); }).catch(function () { a.classList.add("nedostupno"); });
+    });
+    app.querySelectorAll("[data-fajl]:not([data-ceka])").forEach(function (el) {
+      el.dataset.ceka = "1";
+      potpisi(el.dataset.fajl).then(function (u) { el.src = u; }).catch(function () {});
+    });
+  }
+  if (app && window.MutationObserver) new MutationObserver(razresiFajlove).observe(app, { childList: true, subtree: true });
   var sb = null;
   var korisnik = null;
   var JE_UREDNIK = false;
   var PODESAVANJA = {};
   var SADRZAJ_UCITAN = false;
+  var POTPISI = {};
   var PROGRAMI_SVI = function () { return S.programi.map(function (p) { return { id: p.id, naziv: p.naziv }; }).concat([{ id: "relaksacija-novac", naziv: "Relaksacija za rad sa novcem" }]); };
 
   /* ---------- pomoćno ---------- */
@@ -156,6 +185,18 @@
       return sb.from("sadrzaj").select("podaci").eq("id", "glavni").maybeSingle()
         .then(function (r) { return r.data ? r.data.podaci : null; });
     },
+    otpremiFajl: function (fajl, folder) {
+      var ime = fajl.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "dj").replace(/[^a-z0-9.]+/g, "-").replace(/^-+|-+$/g, "");
+      var pt = folder + "/" + Date.now() + "-" + ime;
+      if (DEMO) { POTPISI[pt] = { url: URL.createObjectURL(fajl), do: Date.now() + 864e5 }; return Promise.resolve(pt); }
+      return sb.storage.from("biblioteka").upload(pt, fajl, { contentType: fajl.type || undefined, upsert: false })
+        .then(function (r) { if (r.error) throw r.error; return pt; });
+    },
+    potpisFajla: function (pt) {
+      if (DEMO) return Promise.reject(new Error("demo"));
+      return sb.storage.from("biblioteka").createSignedUrl(pt, 3600)
+        .then(function (r) { if (r.error) throw r.error; return r.data.signedUrl; });
+    },
     sacuvajSadrzaj: function (podaci) {
       if (DEMO) { pisi("soba_sadrzaj", podaci); return Promise.resolve(); }
       return sb.from("sadrzaj").upsert({ id: "glavni", podaci: podaci, azurirano: new Date().toISOString() })
@@ -238,9 +279,10 @@
         .then(function (r) { if (r.error) throw r.error; });
     },
     upitnikPopunjen: function () {
-      if (DEMO) return Promise.resolve(!!citaj("soba_upitnik", null));
-      return sb.from("upitnik").select("user_id").eq("user_id", korisnik.id).maybeSingle()
-        .then(function (r) { if (r.error) throw r.error; return !!r.data; });
+      if (DEMO) { var du = citaj("soba_upitnik", null); return Promise.resolve(!!(du && !du.preskocio && du.dovodi)); }
+      // Popunjen = postoji red sa pravim odgovorima (stari "preskočio" se ne računa).
+      return sb.from("upitnik").select("odgovori").eq("user_id", korisnik.id).maybeSingle()
+        .then(function (r) { if (r.error) throw r.error; return !!(r.data && r.data.odgovori && !r.data.odgovori.preskocio && r.data.odgovori.dovodi); });
     },
     sacuvajUpitnik: function (odgovori) {
       if (DEMO) { pisi("soba_upitnik", odgovori); return Promise.resolve(); }
@@ -454,29 +496,31 @@
     app.innerHTML = '<main class="ekran bez-menija">' + demoTraka() + zaglavlje() +
       '<div class="okvir" style="max-width:620px;padding-top:40px;display:flex;flex-direction:column;gap:22px">' +
       '<div class="nadnaslov">Dobro došao</div><h1>Pre nego što <em>uđeš.</em></h1>' +
-      '<p class="tekst">Četiri kratka pitanja. Odgovore čitam samo ja, i pomažu mi da Prostor pravim za ljude koji su u njemu. Možeš i da preskočiš.</p>' +
+      '<p class="tekst">Četiri kratka pitanja, pre prvog ulaska. Odgovore čitam samo ja, i pomažu mi da Prostor i program pratim tako da odgovaraju baš tebi.</p>' +
       '<form id="upitnik" class="forma-ured" style="display:flex;flex-direction:column;gap:18px">' +
       polje("u-ime", "Kako da ti se obraćam?", "") +
       polje("u-dovodi", "Šta te dovodi u Prostor?", "", "dugo") +
       polje("u-promena", "Šta bi voleo da bude drugačije za tebe za nekoliko meseci?", "", "dugo") +
       izbor("u-izvor", "Kako si čuo za mene?", [["instagram", "Instagram"], ["preporuka", "Preporuka"], ["sajt", "Sajt"], ["drugo", "Drugo"]], "instagram") +
-      '<button class="dugme" type="submit">Sačuvaj i uđi</button>' +
-      '<button class="malo-dugme" type="button" id="u-preskoci" style="align-self:center">Preskoči</button></form></div></main>';
+      '<button class="dugme" type="submit">Sačuvaj i uđi</button></form></div></main>';
     function gotovo(odg) {
       baza.sacuvajUpitnik(odg).catch(function (e) {
         console.error("upitnik čuvanje", e);
         javi("Odgovori nisu sačuvani: " + ((e && (e.message || e.code)) || "greška"), true);
-        return new Promise(function (r) { setTimeout(r, 2500); });
-      }).then(function () {
-        try { localStorage.setItem("soba_upitnik_" + korisnik.id, "1"); } catch (_) {}
+        return new Promise(function (r) { setTimeout(function () { r("greska"); }, 2500); });
+      }).then(function (ishod) {
+        if (ishod !== "greska") { try { localStorage.setItem("soba_upitnik_" + korisnik.id, "1"); } catch (_) {} }
         dalje();
       });
     }
     document.getElementById("upitnik").addEventListener("submit", function (e) {
       e.preventDefault();
-      gotovo({ ime: vr("u-ime"), dovodi: document.getElementById("u-dovodi").value.trim(), promena: document.getElementById("u-promena").value.trim(), izvor: vr("u-izvor") });
+      var odg = { ime: vr("u-ime"), dovodi: document.getElementById("u-dovodi").value.trim(), promena: document.getElementById("u-promena").value.trim(), izvor: vr("u-izvor") };
+      var prazno = [["u-ime", odg.ime], ["u-dovodi", odg.dovodi], ["u-promena", odg.promena]].filter(function (x) { return !x[1]; });
+      if (prazno.length) { javi("Molim te, odgovori na sva pitanja.", true); document.getElementById(prazno[0][0]).focus(); return; }
+      this.querySelector("button[type=submit]").disabled = true;
+      gotovo(odg);
     });
-    document.getElementById("u-preskoci").addEventListener("click", function () { gotovo({ preskocio: true }); });
   }
   var UPITNIK_STANJE = null; // null → "provera" → "prikazan" → "gotovo"
   function trebaUpitnik() {
@@ -665,7 +709,8 @@
       '<h1 style="font-size:42px">Za večeri kad ti <em>treba mir</em></h1><p class="tekst">Slušaj sa slušalicama, u tišini.</p></div>';
     if (otvorena) h += '<section class="okvir blok otvoreno" style="display:flex;flex-direction:column;gap:10px"><div class="video">' +
       (otvorena.vimeo ? videoOkvir(otvorena.vimeo, otvorena.naziv)
-        : '<img src="' + otvorena.slika + '" alt=""><div class="prazno">Snimak uskoro</div>') + '</div><span class="tiho">' + esc(otvorena.naziv) + "</span></section>";
+        : '<img src="' + otvorena.slika + '" alt=""><div class="prazno">Snimak uskoro</div>') + '</div><span class="tiho">' + esc(otvorena.naziv) + "</span>" +
+      (link(otvorena.pdf) ? '<a class="dugme obrub" style="align-self:flex-start" href="' + esc(link(otvorena.pdf)) + '" target="_blank" rel="noopener">Otvori uputstvo (PDF)</a>' : "") + "</section>";
     h += '<div class="dve-kolone"><section class="okvir blok glavno" aria-label="Relaksacije"><div class="nadnaslov">Relaksacije</div>' +
       (stavke.length ? stavke.map(function (b) {
         return '<a class="red" href="#/biblioteka/' + b.id + '"><span style="width:46px;height:46px;border-radius:50%;border:1px solid var(--pl);display:flex;align-items:center;justify-content:center;flex:none"><svg width="13" height="13" viewBox="0 0 24 24" fill="#3D2440" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></span>' +
@@ -694,17 +739,38 @@
       opcije.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === izabrano ? " selected" : "") + ">" + esc(o[1]) + "</option>"; }).join("") + "</select></div>";
   }
   function vr(id) { var el = document.getElementById(id); return el ? el.value.trim() : ""; }
+  function poljeFajl(id, oznaka, vrednost, folder, prihvata, pomoc) {
+    var info = jeFajl(vrednost) ? "Fajl je u Prostoru: " + imeFajla(vrednost) : (pomoc || "");
+    return '<div class="polje-ured"><label for="' + id + '">' + oznaka + '</label><div class="fajl-red"><input id="' + id + '" type="text" value="' + esc(vrednost || "") + '">' +
+      '<label class="dugme obrub fajl-dugme">Otpremi fajl<input type="file" accept="' + prihvata + '" data-za="' + id + '" data-folder="' + esc(folder) + '" hidden></label></div>' +
+      '<span class="tiho" id="' + id + '-stanje">' + esc(info) + "</span></div>";
+  }
+  function povezOtpremanje(mesto) {
+    mesto.querySelectorAll("input[type=file][data-za]").forEach(function (inp) {
+      inp.addEventListener("change", function () {
+        var f = inp.files && inp.files[0]; if (!f) return;
+        var st = document.getElementById(inp.dataset.za + "-stanje");
+        inp.value = "";
+        if (f.size > 50 * 1024 * 1024) { st.textContent = "Fajl je veći od 50 MB. Smanji ga ili video postavi na YouTube ili Vimeo."; return; }
+        st.textContent = "Otpremam " + f.name + "... ne zatvaraj stranicu.";
+        baza.otpremiFajl(f, inp.dataset.folder).then(function (pt) {
+          document.getElementById(inp.dataset.za).value = "fajl:" + pt;
+          st.textContent = "Otpremljeno: " + f.name + ". Sad klikni Sačuvaj.";
+        }).catch(function (e) { console.error(e); st.textContent = "Nije otpremljeno: " + (e.message || e); });
+      });
+    });
+  }
   function javi(tekst, greska) { var el = document.getElementById("javi"); if (el) { el.textContent = tekst; el.className = "javi" + (greska ? " greska" : ""); } }
 
   function ekranUredjivanje(tab) {
-    var tabovi = [["pregled", "Pregled"], ["polaznici", "Polaznici"], ["sadrzaj", "Sadržaj"], ["naslovna", "Naslovna"], ["ponuda", "Ponuda"], ["promocija", "Promocija"], ["kuponi", "Kuponi"]];
+    var tabovi = [["pregled", "Pregled"], ["polaznici", "Polaznici"], ["sadrzaj", "Sadržaj"], ["biblioteka", "Biblioteka"], ["naslovna", "Naslovna"], ["ponuda", "Ponuda"], ["promocija", "Promocija"], ["kuponi", "Kuponi"]];
     app.innerHTML = '<main class="ekran ured">' + demoTraka() + zaglavlje() +
       '<div class="okvir pozdrav"><div class="nadnaslov">Samo za tebe</div><h1>Ure<em>đivanje</em></h1></div>' +
       '<nav class="ured-tabovi okvir" aria-label="Delovi uređivanja">' + tabovi.map(function (t) {
         return '<a href="#/uredjivanje/' + t[0] + '"' + (t[0] === tab ? ' aria-current="page"' : "") + ">" + t[1] + "</a>"; }).join("") + "</nav>" +
       '<div class="okvir" id="ured-sadrzaj"><p class="tiho">Učitavam...</p></div><p id="javi" class="javi" role="status"></p></main>' + meni("ured");
     var mesto = document.getElementById("ured-sadrzaj");
-    var f = { pregled: uredPregled, polaznici: uredPolaznici, sadrzaj: uredSadrzaj, naslovna: uredNaslovna, ponuda: uredPonuda, promocija: uredPromocija, kuponi: uredKuponi }[tab] || uredPregled;
+    var f = { pregled: uredPregled, polaznici: uredPolaznici, sadrzaj: uredSadrzaj, biblioteka: uredBiblioteka, naslovna: uredNaslovna, ponuda: uredPonuda, promocija: uredPromocija, kuponi: uredKuponi }[tab] || uredPregled;
     Promise.resolve(f(mesto)).catch(function (e) { console.error(e); mesto.innerHTML = '<div class="poruka">Nije učitano. Osveži stranicu.</div>'; });
   }
 
@@ -801,10 +867,13 @@
       '<section class="ured-blok forma-ured"><div class="nadnaslov">Program</div>' +
       polje("p-naziv", "Naziv programa", p.naziv) + polje("p-kratko", "Kratak opis", p.kratko, "text", "Piše ispod naziva u Prostoru, npr. 9 modula") +
       polje("p-citat", "Citat u prostoriji", p.citat, "dugo") + polje("p-uvod", "Pismo pre početka (prva stvar koju polaznik vidi u programu)", p.uvod, "dugo") +
-      polje("p-uvodpdf", "Link do pisma kao PDF (nije obavezno)", p.uvodPdf, "url") + polje("p-prodaja", "Link prodajne stranice (za one koji nemaju program)", p.prodaja, "url") + polje("p-sveska", "Link do PDF-a (Dnevnik korena ili radna sveska)", sveska ? sveska.link : "", "url") + "</section>" +
+      poljeFajl("p-uvodpdf", "Pismo kao PDF (nije obavezno)", p.uvodPdf, p.id, "application/pdf", "Otpremi PDF ili nalepi link.") + polje("p-prodaja", "Link prodajne stranice (za one koji nemaju program)", p.prodaja, "url") + poljeFajl("p-sveska", "PDF za ceo program (Dnevnik korena ili radna sveska)", sveska ? sveska.link : "", p.id, "application/pdf", "Otpremi PDF ili nalepi link.") + "</section>" +
       '<section class="ured-blok"><div class="nadnaslov">' + (clanstvo(p) ? "Meseci" : "Moduli") + '</div>' + p.moduli.map(function (m, i) {
         return '<details class="modul-ured"' + (i === 0 ? "" : "") + "><summary><span class=\"broj\">" + esc(clanstvo(p) ? "" : m.rim) + "</span> " + esc((clanstvo(p) && m.mesec ? m.mesec + " · " : "") + m.naziv) + (m.vimeo ? "" : ' <span class="tiho">· bez videa</span>') + "</summary>" +
-          '<div class="forma-ured">' + polja.map(function (pl) { return polje("m" + i + "-" + pl[0], pl[1], m[pl[0]], pl[2], pl[3]); }).join("") +
+          '<div class="forma-ured">' + polja.map(function (pl) {
+            if (pl[0] === "fantazija") return poljeFajl("m" + i + "-fantazija", "Vođena fantazija", m.fantazija, p.id, "audio/*", "Otpremi mp3 ili m4a, ili nalepi YouTube, Vimeo ili Drive link. Prazno = ovaj modul nema fantaziju.");
+            if (pl[0] === "sveska") return poljeFajl("m" + i + "-sveska", "Radna sveska za ovaj modul (PDF)", m.sveska, p.id, "application/pdf", "Otpremi PDF ili nalepi link.");
+            return polje("m" + i + "-" + pl[0], pl[1], m[pl[0]], pl[2], pl[3]); }).join("") +
           '<button class="tihi-link ukloni" data-i="' + i + '">' + (clanstvo(p) ? "Ukloni ovaj mesec" : "Ukloni ovaj modul") + '</button></div></details>';
       }).join("") + '<button class="dugme obrub" id="novi-modul" style="margin-top:20px">' + (clanstvo(p) ? "Dodaj novi mesec" : "Dodaj modul") + '</button></section>' +
       '<div class="ured-sacuvaj"><button class="dugme" id="sacuvaj-sadrzaj">Sačuvaj sadržaj</button></div>';
@@ -815,6 +884,7 @@
       else if (link) { p.uzProgram = p.uzProgram || []; p.uzProgram.unshift({ naziv: p.id === "koren" ? "Dnevnik korena" : "Radna sveska", opis: "PDF", link: link }); }
       p.moduli.forEach(function (m, i) { polja.forEach(function (pl) { var el = document.getElementById("m" + i + "-" + pl[0]); if (el) m[pl[0]] = el.value.trim(); }); });
     }
+    povezOtpremanje(mesto);
     mesto.querySelectorAll("[data-izaberi]").forEach(function (b) { b.addEventListener("click", function () { izabraniProgram = b.dataset.izaberi; uredSadrzaj(mesto); }); });
     document.getElementById("novi-modul").addEventListener("click", function () {
       procitaj(); var n = p.moduli.length;
@@ -832,6 +902,61 @@
     document.getElementById("sacuvaj-sadrzaj").addEventListener("click", function () {
       procitaj();
       baza.sacuvajSadrzaj(kopija).then(function () { S = kopija; window.SOBA_SADRZAJ = S; javi("Sačuvano. Polaznici odmah vide promene."); })
+        .catch(function (e) { console.error(e); javi("Nije sačuvano. Proveri internet i probaj ponovo.", true); });
+    });
+  }
+
+  var VEZANO_ZA_KUPOVINU = ["relaksacija-novac"];
+  function uredBiblioteka(mesto, radna) {
+    var kopija = radna || JSON.parse(JSON.stringify(S));
+    kopija.biblioteka = kopija.biblioteka || [];
+    var opcijeP = PROGRAMI_SVI().map(function (x) { return [x.id, x.naziv]; });
+    mesto.innerHTML = '<p class="tiho" style="margin-bottom:24px">Relaksacije i snimci u Biblioteci. Snimak vidi samo onaj ko ima izabrani program ili ga je kupio. Fajl do 50 MB (mp3, m4a ili PDF).</p>' +
+      '<section class="ured-blok">' + kopija.biblioteka.map(function (b, i) {
+        var vezano = VEZANO_ZA_KUPOVINU.indexOf(b.id) >= 0;
+        return '<details class="modul-ured"' + (kopija.biblioteka.length === 1 ? " open" : "") + '><summary>' + esc(b.naziv) + ' <span class="tiho">· ' + esc(nazivPrograma(b.program)) + (b.vimeo ? "" : " · bez snimka") + "</span></summary>" +
+          '<div class="forma-ured">' + polje("b" + i + "-naziv", "Naziv", b.naziv) + polje("b" + i + "-opis", "Kratak opis", b.opis, "text", "Npr. Vođena fantazija · 18 min") +
+          (vezano ? '<p class="tiho">Ovaj snimak dobija ko kupi ' + esc(nazivPrograma(b.program)) + '.</p>'
+            : izbor("b" + i + "-program", "Ko ga vidi", opcijeP, b.program)) +
+          poljeFajl("b" + i + "-snimak", "Snimak", b.vimeo, b.program, "audio/*,video/mp4", "Otpremi mp3 ili m4a, ili nalepi YouTube, Vimeo ili Drive link.") +
+          poljeFajl("b" + i + "-pdf", "PDF uputstvo (nije obavezno)", b.pdf, b.program, "application/pdf", "") +
+          izbor("b" + i + "-slika", "Slika", SLIKE, b.slika) +
+          (vezano ? "" : '<button class="tihi-link ukloni" data-i="' + i + '">Ukloni ovaj snimak</button>') + "</div></details>";
+      }).join("") + '<button class="dugme obrub" id="nova-stavka" style="margin-top:20px">Dodaj snimak</button></section>' +
+      '<div class="ured-sacuvaj"><button class="dugme" id="sacuvaj-bib">Sačuvaj biblioteku</button></div>';
+    povezOtpremanje(mesto);
+    kopija.biblioteka.forEach(function (b, i) {
+      var sel = document.getElementById("b" + i + "-program");
+      if (sel) sel.addEventListener("change", function () {
+        mesto.querySelectorAll('input[data-za="b' + i + '-snimak"], input[data-za="b' + i + '-pdf"]').forEach(function (x) { x.dataset.folder = sel.value; });
+      });
+    });
+    function procitaj() {
+      kopija.biblioteka.forEach(function (b, i) {
+        b.naziv = vr("b" + i + "-naziv") || b.naziv; b.opis = vr("b" + i + "-opis");
+        if (document.getElementById("b" + i + "-program")) b.program = vr("b" + i + "-program");
+        b.vimeo = vr("b" + i + "-snimak"); b.pdf = vr("b" + i + "-pdf"); b.slika = vr("b" + i + "-slika") || b.slika;
+      });
+    }
+    document.getElementById("nova-stavka").addEventListener("click", function () {
+      procitaj();
+      kopija.biblioteka.push({ id: "snimak-" + Date.now(), program: "koren", naziv: "Novi snimak", opis: "", vimeo: "", pdf: "", slika: "slike/relaksacija.jpg" });
+      uredBiblioteka(mesto, kopija); javi("Snimak je dodat. Popuni ga i klikni Sačuvaj biblioteku.");
+    });
+    mesto.querySelectorAll(".ukloni").forEach(function (b) {
+      b.addEventListener("click", function () {
+        if (b.dataset.potvrda !== "1") { b.dataset.potvrda = "1"; b.textContent = "Klikni još jednom da ukloniš snimak"; return; }
+        procitaj(); kopija.biblioteka.splice(+b.dataset.i, 1);
+        uredBiblioteka(mesto, kopija); javi("Snimak je uklonjen. Klikni Sačuvaj biblioteku da ostane tako.");
+      });
+    });
+    document.getElementById("sacuvaj-bib").addEventListener("click", function () {
+      procitaj();
+      var los = kopija.biblioteka.filter(function (b) {
+        return [b.vimeo, b.pdf].some(function (v) { return jeFajl(v) && putanja(v).split("/")[0] !== b.program; });
+      })[0];
+      if (los) return javi("Fajl za „" + los.naziv + "” je otpremljen za drugi program. Otpremi ga ponovo, pa sačuvaj.", true);
+      baza.sacuvajSadrzaj(kopija).then(function () { S = kopija; window.SOBA_SADRZAJ = S; javi("Biblioteka je sačuvana. Polaznici odmah vide promene."); uredBiblioteka(mesto); })
         .catch(function (e) { console.error(e); javi("Nije sačuvano. Proveri internet i probaj ponovo.", true); });
     });
   }

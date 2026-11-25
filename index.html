@@ -279,6 +279,12 @@ nav.meni a.meni-logo{display:none}
     .ekran.bez-menija > *{margin-left:auto;margin-right:auto}
     .ponuda-slika img{height:380px}
   }
+.video:has(.zvuk){aspect-ratio:auto;background:transparent;overflow:visible}
+.zvuk audio{width:100%;display:block}
+.video video{position:absolute;inset:0;width:100%;height:100%;background:#000}
+.fajl-red{display:flex;gap:10px;align-items:stretch}.fajl-red input[type=text]{flex:1;min-width:0}
+.fajl-dugme{white-space:nowrap;cursor:pointer;display:inline-flex;align-items:center;margin:0}
+a.nedostupno{opacity:.5;pointer-events:none}
 </style>
 </head>
 <body>
