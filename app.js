@@ -806,7 +806,8 @@
   }
 
   function ekranBiblioteka(pristup, otvoriId) {
-    var stavke = S.biblioteka.filter(function (b) { return pristup.indexOf(b.program) >= 0; });
+    // Urednik vidi sve snimke (i one koje još niko nije kupio), da može da ih proveri.
+    var stavke = S.biblioteka.filter(function (b) { return JE_UREDNIK || pristup.indexOf(b.program) >= 0; });
     var otvorena = stavke.filter(function (b) { return b.id === otvoriId; })[0];
     var h = '<main class="ekran biblioteka">' + demoTraka() + '<div class="bib-slika"><img src="' + (otvorena ? otvorena.slika : "slike/biblioteka.jpg") + '" alt=""></div>' +
       '<div class="okvir pozdrav"><div class="nadnaslov">Biblioteka</div>' +
@@ -818,7 +819,7 @@
     h += '<div class="dve-kolone"><section class="okvir blok glavno" aria-label="Relaksacije"><div class="nadnaslov">Relaksacije</div>' +
       (stavke.length ? stavke.map(function (b) {
         return '<a class="red" href="#/biblioteka/' + b.id + '"><span style="width:46px;height:46px;border-radius:50%;border:1px solid var(--pl);display:flex;align-items:center;justify-content:center;flex:none"><svg width="13" height="13" viewBox="0 0 24 24" fill="#3D2440" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></span>' +
-          '<span style="flex:1"><span class="naziv" style="font-size:22px">' + esc(b.naziv) + '</span><span class="pod">' + esc(b.opis) + "</span></span></a>";
+          '<span style="flex:1"><span class="naziv" style="font-size:22px">' + esc(b.naziv) + '</span><span class="pod">' + esc(b.opis) + (JE_UREDNIK && pristup.indexOf(b.program) < 0 ? " · vidiš kao urednik" : "") + "</span></span></a>";
       }).join("") : '<p class="tekst" style="padding-top:12px">Ovde će biti relaksacije iz tvojih programa.</p>') + "</section>";
     var mape = S.programi.filter(function (p) { return pristup.indexOf(p.id) >= 0 && link(p.mapa); });
     h += '<aside class="strana">';
@@ -832,7 +833,7 @@
 
   /* ---------- Uređivanje (samo urednici) ---------- */
   var RIM = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV"];
-  var SLIKE = [["slike/cvetovi.jpg", "Cvetovi (Koren)"], ["slike/more.jpg", "More (Povratak sebi)"], ["slike/relaksacija.jpg", "Relaksacija"], ["slike/mesecna.jpg", "Svetlo i senka (Kutak)"], ["slike/biblioteka.jpg", "Večernje svetlo (Biblioteka)"], ["slike/milica.jpg", "Milica"]];
+  var SLIKE = [["slike/cvetovi.jpg", "Cvetovi (Koren)"], ["slike/more.jpg", "More (Povratak sebi)"], ["slike/relaksacija.jpg", "Relaksacija"], ["slike/mesecna.jpg", "Svetlo i senka (Kutak)"], ["slike/biblioteka.jpg", "Večernje svetlo (Biblioteka)"], ["slike/cvetovi-u-plavom.jpg", "Cvetovi u plavom"], ["slike/sumrak-na-moru.jpg", "Sumrak na moru"], ["slike/plavo-cvece.jpg", "Plavo cveće"], ["slike/svetla-u-sumrak.jpg", "Svetla u sumrak"], ["slike/breskva-i-magla.jpg", "Breskva i magla"], ["slike/sljiva-i-plavo.jpg", "Šljiva i plavo"], ["slike/milica.jpg", "Milica"]];
   function nazivPrograma(id) { var p = PROGRAMI_SVI().filter(function (x) { return x.id === id; })[0]; return p ? p.naziv : id; }
   function polje(id, oznaka, vrednost, vrsta, pomoc) {
     var v = esc(vrednost == null ? "" : vrednost);
