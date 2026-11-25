@@ -463,7 +463,11 @@
       '<button class="dugme" type="submit">Sačuvaj i uđi</button>' +
       '<button class="malo-dugme" type="button" id="u-preskoci" style="align-self:center">Preskoči</button></form></div></main>';
     function gotovo(odg) {
-      baza.sacuvajUpitnik(odg).catch(function (e) { console.error(e); }).then(function () {
+      baza.sacuvajUpitnik(odg).catch(function (e) {
+        console.error("upitnik čuvanje", e);
+        javi("Odgovori nisu sačuvani: " + ((e && (e.message || e.code)) || "greška"), true);
+        return new Promise(function (r) { setTimeout(r, 2500); });
+      }).then(function () {
         try { localStorage.setItem("soba_upitnik_" + korisnik.id, "1"); } catch (_) {}
         dalje();
       });
@@ -481,7 +485,7 @@
     return baza.upitnikPopunjen().then(function (da) {
       if (da) { try { localStorage.setItem("soba_upitnik_" + korisnik.id, "1"); } catch (_) {} }
       return !da;
-    }).catch(function () { return false; });
+    }).catch(function (e) { console.error("upitnik provera", e); return true; }); // ako provera ne uspe, ipak pitaj
   }
 
   /* ---------- ponuda: javne prodajne stranice ---------- */
