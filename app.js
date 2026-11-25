@@ -80,7 +80,13 @@
   var PODESAVANJA = {};
   var SADRZAJ_UCITAN = false;
   var POTPISI = {};
-  var PROGRAMI_SVI = function () { return S.programi.map(function (p) { return { id: p.id, naziv: p.naziv }; }).concat([{ id: "relaksacija-novac", naziv: "Relaksacija za rad sa novcem" }]); };
+  // Sve što može da se kupi: programi + snimci koji se prodaju posebno (snimak čiji je "program" njegov sopstveni kod).
+  var PROGRAMI_SVI = function () {
+    var l = S.programi.map(function (p) { return { id: p.id, naziv: p.naziv }; });
+    S.biblioteka.forEach(function (b) { if (b.program === b.id && !l.some(function (x) { return x.id === b.id; })) l.push({ id: b.id, naziv: b.naziv }); });
+    if (!l.some(function (x) { return x.id === "relaksacija-novac"; })) l.push({ id: "relaksacija-novac", naziv: "Relaksacija za rad sa novcem" });
+    return l;
+  };
 
   /* ---------- pomoćno ---------- */
   function esc(t) {
@@ -196,6 +202,29 @@
       if (DEMO) return Promise.reject(new Error("demo"));
       return sb.storage.from("biblioteka").createSignedUrl(pt, 3600)
         .then(function (r) { if (r.error) throw r.error; return r.data.signedUrl; });
+    },
+    tekstovi: function (gde) {
+      if (DEMO) return Promise.resolve(citaj("soba_tekstovi", []).filter(function (t) { return t.vidljivost === gde && t.objavljeno; }));
+      return sb.from("tekstovi").select("id,naslov,sazetak,slika,vidljivost,datum").eq("vidljivost", gde).eq("objavljeno", true).order("datum", { ascending: false })
+        .then(function (r) { if (r.error) throw r.error; return r.data || []; });
+    },
+    tekst: function (id) {
+      if (DEMO) return Promise.resolve(citaj("soba_tekstovi", []).filter(function (t) { return t.id === id; })[0] || null);
+      return sb.from("tekstovi").select("*").eq("id", id).maybeSingle().then(function (r) { if (r.error) throw r.error; return r.data; });
+    },
+    sviTekstovi: function () {
+      if (DEMO) return Promise.resolve(citaj("soba_tekstovi", []));
+      return sb.from("tekstovi").select("*").order("datum", { ascending: false }).then(function (r) { if (r.error) throw r.error; return r.data || []; });
+    },
+    sacuvajTekst: function (t) {
+      if (DEMO) { var l = citaj("soba_tekstovi", []); if (!t.id) t.id = "t" + Date.now(); l = l.filter(function (x) { return x.id !== t.id; }); l.unshift(t); pisi("soba_tekstovi", l); return Promise.resolve(t); }
+      var z = { naslov: t.naslov, sazetak: t.sazetak, telo: t.telo, slika: t.slika, vidljivost: t.vidljivost, objavljeno: t.objavljeno, datum: t.datum, azurirano: new Date().toISOString() };
+      var q = t.id ? sb.from("tekstovi").update(z).eq("id", t.id).select().single() : sb.from("tekstovi").insert(z).select().single();
+      return q.then(function (r) { if (r.error) throw r.error; return r.data; });
+    },
+    obrisiTekst: function (id) {
+      if (DEMO) { pisi("soba_tekstovi", citaj("soba_tekstovi", []).filter(function (x) { return x.id !== id; })); return Promise.resolve(); }
+      return sb.from("tekstovi").delete().eq("id", id).then(function (r) { if (r.error) throw r.error; });
     },
     sacuvajSadrzaj: function (podaci) {
       if (DEMO) { pisi("soba_sadrzaj", podaci); return Promise.resolve(); }
@@ -413,8 +442,10 @@
     } else {
       h += '<div class="okvir prostorije"><div class="poruka">Na ovom mejlu još nema otvorenih programa. Ako si kupio program sa drugim mejlom, odjavi se i uđi sa njim. Ako ne uspeš, piši na <a href="mailto:' + esc(C.MEJL_PODRSKE) + '">' + esc(C.MEJL_PODRSKE) + "</a>.</div></div>";
     }
-    var predlozi = ostali.map(function (p) { return { naziv: p.naziv, slika: p.slika, link: "#/ponuda/" + p.id }; })
-      .concat(nemaBib.map(function (b) { return { naziv: b.naziv, slika: b.slika, link: "#/ponuda/" + b.program }; }));
+    var vidljivo = vidljivePonude().map(function (o) { return o.id; });
+    var predlozi = ostali.map(function (p) { return { id: p.id, naziv: p.naziv, slika: p.slika, link: "#/ponuda/" + p.id }; })
+      .concat(nemaBib.map(function (b) { return { id: b.program, naziv: b.naziv, slika: b.slika, link: "#/ponuda/" + b.program }; }))
+      .filter(function (x) { return vidljivo.indexOf(x.id) >= 0; });
     if (predlozi.length) {
       var pr = predlozi[0];
       h += '<a class="malo-dugme" href="#/ponuda" style="align-self:flex-start">Svi programi →</a>';
@@ -424,7 +455,7 @@
     }
     var kInfo = PRISTUP_INFO["mesecna-soba"] || {}, kOff = ponudaZa("mesecna-soba") || {};
     var kDana = kInfo.istice ? Math.ceil((new Date(kInfo.istice) - new Date()) / 864e5) : null;
-    var imaProgram = pristup.indexOf("koren") >= 0 || pristup.indexOf("povratak") >= 0;
+    var imaProgram = S.programi.some(function (p) { return !clanstvo(p) && pristup.indexOf(p.id) >= 0; });
     if ((kDana != null && kDana <= 21 && pristup.indexOf("mesecna-soba") >= 0) || (imaProgram && pristup.indexOf("mesecna-soba") < 0)) {
       var istekao = pristup.indexOf("mesecna-soba") < 0;
       h += '<section class="promocija" aria-label="Kutak"><img src="slike/mesecna.jpg" alt=""><div class="promocija-tekst"><div class="nadnaslov">Kutak</div>' +
@@ -532,18 +563,91 @@
     }).catch(function (e) { console.error("upitnik provera", e); return true; }); // ako provera ne uspe, ipak pitaj
   }
 
+  /* ---------- Tekstovi: javni Blog i Kutak za čitanje ---------- */
+  // Prazan red = novi pasus, "## " = podnaslov, "- " = stavka, **reč** = podebljano.
+  function tekstUHtml(t) {
+    return String(t || "").replace(/\r/g, "").split(/\n\s*\n/).map(function (blok) {
+      blok = blok.trim(); if (!blok) return "";
+      var linije = blok.split("\n");
+      var fmt = function (s) { return esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"); };
+      if (/^##\s/.test(blok) && linije.length === 1) return "<h2>" + fmt(blok.replace(/^##\s*/, "")) + "</h2>";
+      if (linije.every(function (l) { return /^\s*-\s/.test(l); })) return "<ul>" + linije.map(function (l) { return "<li>" + fmt(l.replace(/^\s*-\s*/, "")) + "</li>"; }).join("") + "</ul>";
+      return "<p>" + linije.map(fmt).join("<br>") + "</p>";
+    }).join("");
+  }
+  function datumTekst(d) { try { return new Date(d).toLocaleDateString("sr-Latn-RS", { day: "numeric", month: "long", year: "numeric" }); } catch (e) { return ""; } }
+  function vrhJavni() {
+    if (korisnik) return zaglavlje('<a class="malo-dugme" href="#/">Prostor</a>');
+    return '<header class="zaglavlje"><a class="logo" href="https://upoznajsebe.com/">Upoznaj Sebe</a><a class="malo-dugme" href="#/">Uđi u Prostor</a></header>';
+  }
+  function listaTekstova(lista, osnova, prazno) {
+    if (!lista.length) return '<p class="tekst okvir" style="padding-top:12px">' + prazno + "</p>";
+    return '<section class="okvir tekstovi-lista">' + lista.map(function (t) {
+      return '<a class="tekst-kartica" href="#/' + osnova + "/" + esc(t.id) + '">' + (t.slika ? '<img src="' + esc(t.slika) + '" alt="">' : "") +
+        '<span class="tekst-kartica-tekst"><span class="tiho">' + esc(datumTekst(t.datum)) + '</span><span class="ime">' + esc(t.naslov) + '</span><span class="tekst" style="font-size:15px">' + esc(t.sazetak || "") + "</span></span></a>";
+    }).join("") + "</section>";
+  }
+  function clanak(t, nazad, natpis) {
+    return '<article class="okvir clanak">' + '<a class="malo-dugme" href="' + nazad + '">← ' + natpis + "</a>" +
+      (t.slika ? '<img class="clanak-slika" src="' + esc(t.slika) + '" alt="">' : "") +
+      '<span class="tiho">' + esc(datumTekst(t.datum)) + "</span><h1>" + esc(t.naslov) + "</h1>" +
+      (t.sazetak ? '<p class="clanak-uvod">' + esc(t.sazetak) + "</p>" : "") + '<div class="clanak-telo">' + tekstUHtml(t.telo) + "</div></article>";
+  }
+  function ekranBlog(id) {
+    var kraj = korisnik ? meni("soba") : "";
+    var poziv = '<section class="okvir blog-poziv"><div class="nadnaslov">Prostor Upoznaj Sebe</div><h3>Pridruži nam se u Prostoru</h3>' +
+      '<p class="tekst">Svakog meseca novi video, tekstovi i vežba, za 19 € mesečno.</p><a class="dugme" href="#/ponuda/mesecna-soba">Saznaj više</a></section>';
+    app.innerHTML = '<main class="ekran ponuda' + (korisnik ? "" : " bez-menija") + '">' + demoTraka() + vrhJavni() + '<p class="tiho okvir" style="padding-top:40px">Učitavam...</p></main>' + kraj;
+    if (id) return baza.tekst(id).then(function (t) {
+      if (!t) { location.hash = "#/blog"; return; }
+      app.innerHTML = '<main class="ekran ponuda' + (korisnik ? "" : " bez-menija") + '">' + demoTraka() + vrhJavni() + clanak(t, "#/blog", "Svi tekstovi") + poziv + "</main>" + kraj;
+    }).catch(greska);
+    baza.tekstovi("blog").then(function (l) {
+      app.innerHTML = '<main class="ekran ponuda' + (korisnik ? "" : " bez-menija") + '">' + demoTraka() + vrhJavni() +
+        '<div class="okvir pozdrav"><div class="nadnaslov">Blog</div><h1>Tekstovi za <em>čitanje</em></h1><p class="tekst">O obrascima iz detinjstva, odnosima i tome kako da razumeš sebe.</p></div>' +
+        listaTekstova(l, "blog", "Prvi tekstovi stižu uskoro.") + poziv + "</main>" + kraj;
+    }).catch(greska);
+  }
+  function ekranCitanje(pristup, id) {
+    var ima = pristup.indexOf("mesecna-soba") >= 0 || JE_UREDNIK;
+    var vrh = '<main class="ekran citanje">' + demoTraka() + zaglavlje();
+    if (!ima) {
+      app.innerHTML = vrh + '<div class="okvir pozdrav"><div class="nadnaslov">Kutak za čitanje</div><h1>Tekstovi za <em>članove Kutka</em></h1>' +
+        '<p class="tekst">Ovde su tekstovi za pomoć i samopomoć koje pišem samo za članove Kutka.</p><a class="dugme" href="#/ponuda/mesecna-soba">Pridruži se Kutku</a></div></main>' + meni("bib");
+      return;
+    }
+    if (id) return baza.tekst(id).then(function (t) {
+      if (!t) { location.hash = "#/citanje"; return; }
+      app.innerHTML = vrh + clanak(t, "#/citanje", "Kutak za čitanje") + "</main>" + meni("bib");
+    }).catch(greska);
+    baza.tekstovi("kutak").then(function (l) {
+      app.innerHTML = vrh + '<div class="okvir pozdrav"><div class="nadnaslov">Kutak za čitanje</div><h1>Za večeri kad želiš da <em>razumeš</em></h1>' +
+        '<p class="tekst">Tekstovi samo za članove Kutka. Čitaj polako, i vrati se onom koji ti zatreba.</p></div>' +
+        listaTekstova(l, "citanje", "Prvi tekstovi stižu uskoro.") + "</main>" + meni("bib");
+    }).catch(greska);
+  }
+
   /* ---------- ponuda: javne prodajne stranice ---------- */
-  var REDOSLED_PONUDE = ["mesecna-soba", "koren", "povratak", "relaksacija-novac"];
+  var OSNOVNI_REDOSLED = ["mesecna-soba", "koren", "povratak", "relaksacija-novac"];
+  // Redosled i nove ponude čuvaju se u podešavanjima, pa ih vidi i posetilac koji nije prijavljen.
+  function redosledPonude() {
+    var l = (PODESAVANJA.redosledPonude || []).slice();
+    OSNOVNI_REDOSLED.forEach(function (id) { if (l.indexOf(id) < 0) l.push(id); });
+    Object.keys(PODESAVANJA.ponuda || {}).forEach(function (id) { if (l.indexOf(id) < 0) l.push(id); });
+    return l;
+  }
+  function vidljivePonude() { return redosledPonude().map(ponudaZa).filter(function (o) { return o && !o.skrivena; }); }
   function ponudaZa(id) {
-    var osnovno = (OSNOVNI.ponuda || {})[id];
-    if (!osnovno) return null;
     var izmene = (PODESAVANJA.ponuda || {})[id] || {};
+    var osnovno = (OSNOVNI.ponuda || {})[id] || ((PODESAVANJA.ponuda || {})[id] ? {} : null);
+    if (!osnovno) return null;
     var o = {}; Object.keys(osnovno).forEach(function (k) { o[k] = osnovno[k]; });
     Object.keys(izmene).forEach(function (k) { if (izmene[k] !== "" && izmene[k] != null) o[k] = izmene[k]; });
     if (izmene.kupi !== undefined) o.kupi = izmene.kupi;
     if (izmene.kupiRate !== undefined) o.kupiRate = izmene.kupiRate;
     var p = program(id), b = S.biblioteka.filter(function (x) { return x.program === id; })[0];
-    o.id = id; o.naziv = p ? p.naziv : b ? b.naziv : id; o.slika = p ? p.slika : b ? b.slika : "slike/cvetovi.jpg";
+    o.id = id; o.naziv = izmene.naziv || (p ? p.naziv : b ? b.naziv : id); o.slika = izmene.slika || (p ? p.slika : b ? b.slika : "slike/cvetovi.jpg");
+    o.skrivena = !!izmene.skrivena;
     o.pretplata = /mese/i.test(o.cena || "");
     return o;
   }
@@ -552,7 +656,7 @@
     return '<header class="zaglavlje"><a class="logo" href="#/ponuda">Upoznaj Sebe</a><a class="malo-dugme" href="#/">Uđi u Prostor</a></header>';
   }
   function ekranPonuda(pristup) {
-    var stavke = REDOSLED_PONUDE.map(ponudaZa).filter(Boolean);
+    var stavke = vidljivePonude();
     var h = '<main class="ekran ponuda' + (korisnik ? "" : " bez-menija") + '">' + demoTraka() + vrhPonude() +
       '<div class="okvir pozdrav"><div class="nadnaslov">Prostor Upoznaj Sebe</div><h1>Pridruži <em>se.</em></h1>' +
       '<p class="tekst">U Prostor ulaziš na jedan od ovih načina. Sve što dobiješ živi na jednom mestu: video, materijali i tvoj dnevnik. Plaćaš karticom, a ulaziš preko linka na mejl, bez lozinke.</p></div>' +
@@ -718,6 +822,8 @@
       }).join("") : '<p class="tekst" style="padding-top:12px">Ovde će biti relaksacije iz tvojih programa.</p>') + "</section>";
     var mape = S.programi.filter(function (p) { return pristup.indexOf(p.id) >= 0 && link(p.mapa); });
     h += '<aside class="strana">';
+    h += '<section class="okvir blok" aria-label="Kutak za čitanje"><div class="nadnaslov">Kutak za čitanje</div><a class="red" href="#/citanje"><span style="flex:1"><span class="naziv" style="font-size:22px">Tekstovi za članove</span><span class="pod">Pomoć i samopomoć</span></span>' + STRELICA + "</a>" +
+      '<a class="red" href="#/blog"><span style="flex:1"><span class="naziv" style="font-size:22px">Blog</span><span class="pod">Javni tekstovi</span></span>' + STRELICA + "</a></section>";
     if (mape.length) h += '<section class="okvir blok" aria-label="Za čitanje"><div class="nadnaslov">Za čitanje</div>' +
       mape.map(function (p) { return '<a class="red" href="' + esc(link(p.mapa)) + '" target="_blank" rel="noopener"><span style="flex:1"><span class="naziv" style="font-size:22px">Mapa pojmova</span><span class="pod">' + esc(p.naziv) + "</span></span>" + STRELICA + "</a>"; }).join("") + "</section>";
     h += "</aside></div></main>" + meni("bib");
@@ -763,14 +869,14 @@
   function javi(tekst, greska) { var el = document.getElementById("javi"); if (el) { el.textContent = tekst; el.className = "javi" + (greska ? " greska" : ""); } }
 
   function ekranUredjivanje(tab) {
-    var tabovi = [["pregled", "Pregled"], ["polaznici", "Polaznici"], ["sadrzaj", "Sadržaj"], ["biblioteka", "Biblioteka"], ["naslovna", "Naslovna"], ["ponuda", "Ponuda"], ["promocija", "Promocija"], ["kuponi", "Kuponi"]];
+    var tabovi = [["pregled", "Pregled"], ["polaznici", "Polaznici"], ["sadrzaj", "Sadržaj"], ["biblioteka", "Biblioteka"], ["tekstovi", "Tekstovi"], ["naslovna", "Naslovna"], ["ponuda", "Ponuda"], ["promocija", "Promocija"], ["kuponi", "Kuponi"]];
     app.innerHTML = '<main class="ekran ured">' + demoTraka() + zaglavlje() +
       '<div class="okvir pozdrav"><div class="nadnaslov">Samo za tebe</div><h1>Ure<em>đivanje</em></h1></div>' +
       '<nav class="ured-tabovi okvir" aria-label="Delovi uređivanja">' + tabovi.map(function (t) {
         return '<a href="#/uredjivanje/' + t[0] + '"' + (t[0] === tab ? ' aria-current="page"' : "") + ">" + t[1] + "</a>"; }).join("") + "</nav>" +
       '<div class="okvir" id="ured-sadrzaj"><p class="tiho">Učitavam...</p></div><p id="javi" class="javi" role="status"></p></main>' + meni("ured");
     var mesto = document.getElementById("ured-sadrzaj");
-    var f = { pregled: uredPregled, polaznici: uredPolaznici, sadrzaj: uredSadrzaj, biblioteka: uredBiblioteka, naslovna: uredNaslovna, ponuda: uredPonuda, promocija: uredPromocija, kuponi: uredKuponi }[tab] || uredPregled;
+    var f = { pregled: uredPregled, polaznici: uredPolaznici, sadrzaj: uredSadrzaj, biblioteka: uredBiblioteka, tekstovi: uredTekstovi, naslovna: uredNaslovna, ponuda: uredPonuda, promocija: uredPromocija, kuponi: uredKuponi }[tab] || uredPregled;
     Promise.resolve(f(mesto)).catch(function (e) { console.error(e); mesto.innerHTML = '<div class="poruka">Nije učitano. Osveži stranicu.</div>'; });
   }
 
@@ -906,6 +1012,43 @@
     });
   }
 
+  var izabraniTekst = null;
+  function uredTekstovi(mesto) {
+    baza.sviTekstovi().then(function (lista) {
+      var t = lista.filter(function (x) { return x.id === izabraniTekst; })[0] ||
+        { id: null, naslov: "", sazetak: "", telo: "", slika: "", vidljivost: "kutak", objavljeno: false, datum: new Date().toISOString() };
+      mesto.innerHTML = '<p class="tiho" style="margin-bottom:20px">Blog čita svako, i bez prijave. Kutak za čitanje vide samo članovi Kutka.</p>' +
+        '<div class="cipovi" style="margin-bottom:24px"><button class="cip' + (t.id ? "" : " uklj") + '" data-tekst="">+ Novi tekst</button>' + lista.map(function (x) {
+          return '<button class="cip' + (x.id === t.id ? " uklj" : "") + '" data-tekst="' + esc(x.id) + '">' + esc(x.naslov || "Bez naslova") +
+            ' <span class="tiho">· ' + (x.vidljivost === "blog" ? "Blog" : "Kutak") + (x.objavljeno ? "" : " · nacrt") + "</span></button>";
+        }).join("") + "</div>" +
+        '<section class="ured-blok forma-ured"><div class="nadnaslov">' + (t.id ? "Uredi tekst" : "Novi tekst") + "</div>" +
+        polje("t-naslov", "Naslov", t.naslov) + polje("t-sazetak", "Kratak opis (vidi se u listi)", t.sazetak, "dugo") +
+        izbor("t-gde", "Gde se objavljuje", [["kutak", "Kutak za čitanje · samo članovi"], ["blog", "Blog · javno, čita svako"]], t.vidljivost) +
+        izbor("t-slika", "Slika (nije obavezno)", [["", "Bez slike"]].concat(SLIKE), t.slika || "") +
+        polje("t-telo", "Tekst", t.telo, "dugo", "Prazan red = novi pasus. ## na početku reda = podnaslov. - na početku reda = stavka. **reč** = podebljano.") +
+        polje("t-datum", "Datum", String(t.datum || "").slice(0, 10), "date") +
+        '<label class="potvrda-red"><input type="checkbox" id="t-objavljeno"' + (t.objavljeno ? " checked" : "") + "> Objavljeno (bez kvačice tekst je nacrt i vidiš ga samo ti)</label>" +
+        '<div style="display:flex;gap:12px;flex-wrap:wrap"><button class="dugme" id="t-sacuvaj">Sačuvaj tekst</button>' +
+        (t.id ? '<a class="dugme obrub" href="#/' + (t.vidljivost === "blog" ? "blog" : "citanje") + "/" + esc(t.id) + '" target="_blank" rel="noopener">Pogledaj</a><button class="tihi-link" id="t-obrisi">Obriši tekst</button>' : "") + "</div></section>";
+      var polj = document.getElementById("t-telo"); if (polj) polj.rows = 18;
+      mesto.querySelectorAll("[data-tekst]").forEach(function (b) { b.addEventListener("click", function () { izabraniTekst = b.dataset.tekst || null; uredTekstovi(mesto); }); });
+      document.getElementById("t-sacuvaj").addEventListener("click", function () {
+        var n = { id: t.id, naslov: vr("t-naslov"), sazetak: vr("t-sazetak"), telo: document.getElementById("t-telo").value, slika: vr("t-slika"), vidljivost: vr("t-gde"),
+          objavljeno: document.getElementById("t-objavljeno").checked, datum: vr("t-datum") ? new Date(vr("t-datum") + "T12:00:00").toISOString() : new Date().toISOString() };
+        if (!n.naslov) return javi("Upiši naslov.", true);
+        baza.sacuvajTekst(n).then(function (s) { izabraniTekst = s.id; javi(n.objavljeno ? "Tekst je sačuvan i objavljen." : "Nacrt je sačuvan."); uredTekstovi(mesto); })
+          .catch(function (e) { console.error(e); javi("Nije sačuvano: " + (e.message || e), true); });
+      });
+      var ob = document.getElementById("t-obrisi");
+      if (ob) ob.addEventListener("click", function () {
+        if (ob.dataset.potvrda !== "1") { ob.dataset.potvrda = "1"; ob.textContent = "Klikni još jednom da obrišeš"; return; }
+        baza.obrisiTekst(t.id).then(function () { izabraniTekst = null; javi("Tekst je obrisan."); uredTekstovi(mesto); })
+          .catch(function (e) { console.error(e); javi("Nije obrisano.", true); });
+      });
+    }).catch(function (e) { console.error(e); mesto.innerHTML = '<p class="tekst">Tekstovi nisu učitani. Da li je pokrenut tekstovi.sql u Supabase-u?</p>'; });
+  }
+
   var VEZANO_ZA_KUPOVINU = ["relaksacija-novac"];
   function uredBiblioteka(mesto, radna) {
     var kopija = radna || JSON.parse(JSON.stringify(S));
@@ -913,7 +1056,7 @@
     var opcijeP = PROGRAMI_SVI().map(function (x) { return [x.id, x.naziv]; });
     mesto.innerHTML = '<p class="tiho" style="margin-bottom:24px">Relaksacije i snimci u Biblioteci. Snimak vidi samo onaj ko ima izabrani program ili ga je kupio. Fajl do 50 MB (mp3, m4a ili PDF).</p>' +
       '<section class="ured-blok">' + kopija.biblioteka.map(function (b, i) {
-        var vezano = VEZANO_ZA_KUPOVINU.indexOf(b.id) >= 0;
+        var vezano = VEZANO_ZA_KUPOVINU.indexOf(b.id) >= 0 || b.program === b.id;
         return '<details class="modul-ured"' + (kopija.biblioteka.length === 1 ? " open" : "") + '><summary>' + esc(b.naziv) + ' <span class="tiho">· ' + esc(nazivPrograma(b.program)) + (b.vimeo ? "" : " · bez snimka") + "</span></summary>" +
           '<div class="forma-ured">' + polje("b" + i + "-naziv", "Naziv", b.naziv) + polje("b" + i + "-opis", "Kratak opis", b.opis, "text", "Npr. Vođena fantazija · 18 min") +
           (vezano ? '<p class="tiho">Ovaj snimak dobija ko kupi ' + esc(nazivPrograma(b.program)) + '.</p>'
@@ -964,10 +1107,23 @@
   var izabranaPonuda = "koren";
   function uredPonuda(mesto) {
     var o = ponudaZa(izabranaPonuda) || ponudaZa("koren");
-    mesto.innerHTML = '<div class="cipovi" style="margin-bottom:24px">' + REDOSLED_PONUDE.map(function (id) {
-        var x = ponudaZa(id); return '<button class="cip' + (id === o.id ? " uklj" : "") + '" data-ponuda="' + esc(id) + '">' + esc(x.naziv) + "</button>"; }).join("") + "</div>" +
+    var jeProg = !!program(o.id) && !clanstvo(program(o.id));
+    mesto.innerHTML = '<div class="cipovi" style="margin-bottom:24px">' + redosledPonude().map(function (id) {
+        var x = ponudaZa(id); if (!x) return "";
+        return '<button class="cip' + (id === o.id ? " uklj" : "") + '" data-ponuda="' + esc(id) + '">' + esc(x.naziv) + (x.skrivena ? " (skriveno)" : "") + "</button>"; }).join("") +
+      '<button class="cip" id="nova-ponuda">+ Nova ponuda</button></div>' +
+      '<section class="ured-blok forma-ured" id="nova-forma" hidden><div class="nadnaslov">Nova ponuda</div>' +
+      polje("np-naziv", "Naziv", "", "text", "Npr. Vođena fantazija: Granice") +
+      izbor("np-vrsta", "Šta prodaješ", [["snimak", "Snimak (vođena fantazija, relaksacija) · stiže u Biblioteku"], ["program", "Program sa modulima · 3 godine pristupa i 6 meseci Kutka na poklon"]], "snimak") +
+      izbor("np-slika", "Slika", SLIKE, "slike/relaksacija.jpg") +
+      '<button class="dugme" id="np-napravi">Napravi ponudu</button></section>' +
       '<section class="ured-blok forma-ured"><div class="nadnaslov">Prodajna stranica: ' + esc(o.naziv) + "</div>" +
       '<p class="tiho">Ovo vidi svako, i ko nije kupio. <a href="#/ponuda/' + esc(o.id) + '" target="_blank" rel="noopener">Pogledaj stranicu</a></p>' +
+      '<div class="polaris-kod"><strong>Kod ponude: ' + esc(o.id) + '</strong><br>U Polar-u, kod proizvoda, u Metadata dodaj <b>program</b> = <b>' + esc(o.id) + '</b>.' +
+      (jeProg ? ' Za plaćanje na rate dodaj i <b>rate</b> = broj rata (npr. 4).' : "") + " Bez toga kupac ne dobija pristup.</div>" +
+      polje("po-naziv", "Naziv na stranici", o.naziv) +
+      izbor("po-slika", "Slika", SLIKE, o.slika) +
+      '<label class="potvrda-red"><input type="checkbox" id="po-skrivena"' + (o.skrivena ? " checked" : "") + "> Sakrij sa stranice Pridruži se (stranica i dalje radi preko direktnog linka)</label>" +
       polje("po-kupi", "Link za kupovinu u celosti (Polar checkout link)", o.kupi, "url", "Polar → Products → Checkout Links. Dok su oba linka prazna, na dugmetu piše „Uskoro”.") +
       polje("po-cena", "Cena u celosti", o.cena, "text", "Npr. 229 € ili 19 € mesečno") +
       polje("po-kupirate", "Link za kupovinu na rate (nije obavezno)", o.kupiRate, "url") +
@@ -981,9 +1137,33 @@
     mesto.querySelectorAll("[data-ponuda]").forEach(function (b) {
       b.addEventListener("click", function () { izabranaPonuda = b.dataset.ponuda; uredPonuda(mesto); });
     });
+    document.getElementById("nova-ponuda").addEventListener("click", function () { document.getElementById("nova-forma").hidden = false; document.getElementById("np-naziv").focus(); });
+    document.getElementById("np-napravi").addEventListener("click", function () {
+      var naziv = vr("np-naziv"), vrsta = vr("np-vrsta"), slika = vr("np-slika");
+      if (!naziv) return javi("Upiši naziv nove ponude.", true);
+      var kod = naziv.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "dj").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 36) || "ponuda";
+      var zauzeto = function (k) { return redosledPonude().indexOf(k) >= 0 || !!program(k) || S.biblioteka.some(function (b) { return b.id === k; }); };
+      var baza0 = kod, n = 2; while (zauzeto(kod)) kod = baza0 + "-" + n++;
+      var kopija = JSON.parse(JSON.stringify(S));
+      if (vrsta === "program") kopija.programi.push({ id: kod, mesecno: true, naziv: naziv, kratko: "", slika: slika, naslovnaTekst: false, citat: "", uzProgram: [],
+        moduli: [{ id: "01", rim: "I", naziv: "Prvi modul", podnaslov: "", vimeo: "", trajanje: "", pismo: "", zadatak: "", trebalo: "", recenica: "" }] });
+      else kopija.biblioteka.push({ id: kod, program: kod, naziv: naziv, opis: "Vođena fantazija", vimeo: "", pdf: "", slika: slika });
+      var sve = JSON.parse(JSON.stringify(PODESAVANJA.ponuda || {}));
+      sve[kod] = { vrsta: vrsta, naziv: naziv, slika: slika, skrivena: true, kupi: "", kupiRate: "", cena: "", cenaRate: "",
+        nacin: vrsta === "program" ? "Plaćaš odjednom ili na rate." : "Jednokratno. Slušaš kad god ti treba.", podnaslov: "", zaKoga: "", opis: "", dobijas: "" };
+      var red = redosledPonude(); red.push(kod);
+      baza.sacuvajSadrzaj(kopija)
+        .then(function () { S = kopija; window.SOBA_SADRZAJ = S; return baza.sacuvajPodesavanje("ponuda", sve); })
+        .then(function () { PODESAVANJA.ponuda = sve; return baza.sacuvajPodesavanje("redosledPonude", red); })
+        .then(function () {
+          PODESAVANJA.redosledPonude = red; izabranaPonuda = kod; uredPonuda(mesto);
+          javi("Ponuda je napravljena i za sada je skrivena. Popuni stranicu, " + (vrsta === "program" ? "dodaj module u Sadržaju" : "otpremi snimak u Biblioteci") + ", nalepi Polar linkove i skini kvačicu Sakrij.");
+        }).catch(function (e) { console.error(e); javi("Nije napravljeno. Proveri internet i probaj ponovo.", true); });
+    });
     document.getElementById("po-sacuvaj").addEventListener("click", function () {
       var sve = JSON.parse(JSON.stringify(PODESAVANJA.ponuda || {}));
-      sve[o.id] = { kupi: vr("po-kupi"), cena: vr("po-cena"), kupiRate: vr("po-kupirate"), cenaRate: vr("po-cenarate"), nacin: vr("po-nacin"), podnaslov: vr("po-podnaslov"), zaKoga: vr("po-zakoga"), opis: vr("po-opis"), dobijas: document.getElementById("po-dobijas").value.trim() };
+      var ranije = sve[o.id] || {};
+      sve[o.id] = { vrsta: ranije.vrsta, naziv: vr("po-naziv"), slika: vr("po-slika"), skrivena: document.getElementById("po-skrivena").checked, kupi: vr("po-kupi"), cena: vr("po-cena"), kupiRate: vr("po-kupirate"), cenaRate: vr("po-cenarate"), nacin: vr("po-nacin"), podnaslov: vr("po-podnaslov"), zaKoga: vr("po-zakoga"), opis: vr("po-opis"), dobijas: document.getElementById("po-dobijas").value.trim() };
       if ([sve[o.id].kupi, sve[o.id].kupiRate].some(function (l) { return l && !/^https:\/\//.test(l); })) return javi("Link za kupovinu mora da počinje sa https://", true);
       baza.sacuvajPodesavanje("ponuda", sve).then(function () { PODESAVANJA.ponuda = sve; javi("Stranica je sačuvana."); })
         .catch(function (e) { console.error(e); javi("Nije sačuvano.", true); });
@@ -1123,6 +1303,11 @@
   /* ---------- usmeravanje ---------- */
   function prikazi() {
     var put = location.hash.replace(/^#\/?/, "").split("?")[0].split("/").filter(Boolean);
+    if (put[0] === "blog") {
+      window.scrollTo(0, 0);
+      if (korisnik && !SADRZAJ_UCITAN) return pripremi().then(prikazi);
+      return ekranBlog(put[1]);
+    }
     if (put[0] === "ponuda" || put[0] === "hvala") {
       window.scrollTo(0, 0);
       if (put[0] === "hvala") return ekranHvala();
@@ -1159,6 +1344,7 @@
         return m ? ekranModul(pp, m, pristup, napredak) : ekranSoba(pristup, napredak);
       }
       if (delovi[0] === "biblioteka") return ekranBiblioteka(pristup, delovi[1]);
+      if (delovi[0] === "citanje") return ekranCitanje(pristup, delovi[1]);
       ekranSoba(pristup, napredak);
     }).catch(greska);
   }
