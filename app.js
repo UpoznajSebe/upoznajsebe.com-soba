@@ -474,7 +474,7 @@
     });
     document.getElementById("u-preskoci").addEventListener("click", function () { gotovo({ preskocio: true }); });
   }
-  var UPITNIK_PROVEREN = false;
+  var UPITNIK_STANJE = null; // null → "provera" → "prikazan" → "gotovo"
   function trebaUpitnik() {
     if (JE_UREDNIK || !korisnik) return Promise.resolve(false);
     try { if (localStorage.getItem("soba_upitnik_" + korisnik.id)) return Promise.resolve(false); } catch (_) {}
@@ -1007,9 +1007,16 @@
     }
     if (!korisnik) { SADRZAJ_UCITAN = false; JE_UREDNIK = false; return ekranUlaz(); }
     if (!SADRZAJ_UCITAN) return pripremi().then(prikazi);
-    if (!UPITNIK_PROVEREN) {
-      UPITNIK_PROVEREN = true;
-      return trebaUpitnik().then(function (treba) { if (treba) return ekranUpitnik(prikazi); prikazi(); });
+    // Upitnik: dok se proverava ili dok je na ekranu, ništa drugo ne sme da ga prekrije
+    // (posle ulaska preko linka Supabase pozove prikazi više puta zaredom).
+    if (UPITNIK_STANJE === "provera" || UPITNIK_STANJE === "prikazan") return;
+    if (UPITNIK_STANJE === null) {
+      UPITNIK_STANJE = "provera";
+      return trebaUpitnik().then(function (treba) {
+        if (!treba) { UPITNIK_STANJE = "gotovo"; return prikazi(); }
+        UPITNIK_STANJE = "prikazan";
+        ekranUpitnik(function () { UPITNIK_STANJE = "gotovo"; prikazi(); });
+      });
     }
     var delovi = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
     window.scrollTo(0, 0);
