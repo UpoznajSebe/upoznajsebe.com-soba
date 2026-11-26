@@ -87,7 +87,7 @@ window.SOBA_SADRZAJ = {
       prodaja: "",
       uzProgram: [],
       moduli: [
-        { id: "01", rim: "I", mesec: "Decembar 2026", naziv: "Prvi mesec", podnaslov: "", vimeo: "", trajanje: "", pismo: "", zadatak: "", trebalo: "", recenica: "" },
+        { id: "01", rim: "I", mesec: "Decembar 2026", naziv: "Anksioznost i naša priča", podnaslov: "Odakle nemir zaista dolazi i šta tvoje telo pokušava da ti kaže", vimeo: "", trajanje: "11 min", pismo: "", zadatak: "", trebalo: "", recenica: "" },
       ],
     },
   ],

@@ -304,6 +304,16 @@ a.nedostupno{opacity:.5;pointer-events:none}
 .clanak-telo ul{margin:0 0 18px;padding-left:20px}
 .blog-poziv{background:var(--wg);padding:28px;margin-top:40px;display:flex;flex-direction:column;gap:10px;align-items:flex-start}
 .blog-poziv h3{font-family:var(--serif);font-weight:400;font-size:28px;margin:0;color:var(--ink)}
+.kutak-mesec{display:flex;gap:22px;align-items:center;background:var(--wh);padding:18px;text-decoration:none;color:inherit;margin-top:8px;border:1px solid transparent;transition:border-color .2s}
+.kutak-mesec:hover{border-color:var(--bd)}
+.kutak-mesec-slika{position:relative;width:46%;max-width:320px;aspect-ratio:16/10;flex:none;overflow:hidden}
+.kutak-mesec-slika img{width:100%;height:100%;object-fit:cover}
+.kutak-play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:58px;height:58px;border-radius:50%;background:rgba(250,248,244,.92);display:flex;align-items:center;justify-content:center}
+.kutak-mesec-tekst{display:flex;flex-direction:column;gap:8px}
+.kutak-mesec-tekst .ime{font-family:var(--serif);font-size:30px;line-height:1.15;color:var(--ink)}
+.kutak-vezba p{margin:10px 0 16px}
+.kutak-kako ol{margin:12px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:10px;font-size:15px;line-height:1.6;color:var(--tx)}
+@media (max-width:700px){.kutak-mesec{flex-direction:column;align-items:stretch}.kutak-mesec-slika{width:100%;max-width:none}}
 </style>
 </head>
 <body>
